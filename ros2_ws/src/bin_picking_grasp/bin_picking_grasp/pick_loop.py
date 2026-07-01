@@ -38,6 +38,7 @@ class PickLoop(Node):
         self.declare_parameter('empty_threshold', 3)        # 连续空判定清空
         self.declare_parameter('max_consecutive_failures', 3)
         self.declare_parameter('max_picks', 0)              # 0=不限
+        self.declare_parameter('pick_timeout', 120.0)       # 单次取放最长等待 s
 
         self.scan_interval = self.get_parameter('scan_interval').value
         self.settle_time = self.get_parameter('settle_time').value
@@ -45,6 +46,7 @@ class PickLoop(Node):
         self.empty_threshold = self.get_parameter('empty_threshold').value
         self.max_failures = self.get_parameter('max_consecutive_failures').value
         self.max_picks = self.get_parameter('max_picks').value
+        self.pick_timeout = self.get_parameter('pick_timeout').value
 
         self.cb = ReentrantCallbackGroup()
         self._latest = None
@@ -148,11 +150,18 @@ class PickLoop(Node):
         if not self.pick_cli.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('/pick_place/run 不可用')
             return False
-        try:
-            res = self.pick_cli.call(Trigger.Request())   # 同步调用（在工作线程）
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().error(f'调用取放异常: {e}')
-            return False
+        # 异步调用 + 非阻塞等待：不占用 executor 线程，且能响应 stop / 超时，
+        # 避免同步 .call() 在取放卡住时把整个循环（含停止）一起拖死。
+        future = self.pick_cli.call_async(Trigger.Request())
+        start = time.time()
+        while rclpy.ok() and self._running and not future.done():
+            if time.time() - start > self.pick_timeout:
+                self.get_logger().error(f'取放调用超时({self.pick_timeout}s)')
+                return False
+            time.sleep(0.02)
+        if not future.done():
+            return False        # 被 stop 打断
+        res = future.result()
         if res is None:
             return False
         if not res.success:

@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -168,6 +170,22 @@ class GraspExecutor(Node):
         return objs
 
     # ---------- 基础动作 ----------
+    def _call_service(self, client, req, timeout_sec=5.0):
+        """在 MultiThreadedExecutor + ReentrantCallbackGroup 下安全地同步调用服务。
+
+        用 call_async + 非阻塞轮询等待，**不在回调里对本节点再 spin**——
+        spin_until_future_complete 对已加入 executor 的节点会报错/死锁。
+        依赖执行器的其它线程完成 future（本项目 main 里用 MultiThreadedExecutor）。
+        """
+        future = client.call_async(req)
+        start = time.time()
+        while rclpy.ok() and not future.done():
+            if time.time() - start > timeout_sec:
+                self.get_logger().warn('服务调用超时')
+                return None
+            time.sleep(0.005)
+        return future.result()
+
     def set_gripper(self, width, force=0.0, speed=None):
         if not self.gripper_cli.service_is_ready():
             self.get_logger().warn('夹爪服务未就绪，跳过')
@@ -176,9 +194,8 @@ class GraspExecutor(Node):
         req.width = float(width)
         req.force = float(force)
         req.speed = float(self.gripper_speed if speed is None else speed)
-        future = self.gripper_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-        return future.result() is not None and future.result().success
+        res = self._call_service(self.gripper_cli, req, timeout_sec=5.0)
+        return res is not None and res.success
 
     def move_free(self, pose: PoseStamped) -> bool:
         """自由空间规划(RRTConnect)移动到位姿。"""
@@ -215,14 +232,17 @@ class GraspExecutor(Node):
         req.jump_threshold = 0.0
         req.avoid_collisions = True
         req.waypoints = [target.pose]
-        # 起始状态用当前状态
-        with self.psm.read_only() as scene:
+        # 起始状态用当前状态。此 API 对 MoveIt 版本敏感，失败则留空，
+        # move_group 会自动用其当前状态作为起点（兜底不致命）。
+        try:
             from moveit.core.robot_state import robotStateToRobotStateMsg
-            req.start_state = robotStateToRobotStateMsg(scene.current_state)
+            with self.psm.read_only() as scene:
+                req.start_state = robotStateToRobotStateMsg(scene.current_state)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().warn(
+                f'设置起始状态失败，改用 move_group 当前状态兜底: {e}')
 
-        future = self.cart_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-        res = future.result()
+        res = self._call_service(self.cart_cli, req, timeout_sec=10.0)
         if res is None or res.fraction < self.cart_min_fraction:
             frac = -1 if res is None else res.fraction
             self.get_logger().warn(
@@ -274,9 +294,7 @@ class GraspExecutor(Node):
             self.get_logger().warn('在手估计服务不可用')
             return None
         req = EstimateInHand.Request()
-        future = self.inhand_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-        res = future.result()
+        res = self._call_service(self.inhand_cli, req, timeout_sec=5.0)
         if res is None or not res.success:
             msg = '无返回' if res is None else res.message
             self.get_logger().warn(f'在手估计失败: {msg}')

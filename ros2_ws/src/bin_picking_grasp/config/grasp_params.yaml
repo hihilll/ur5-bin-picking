@@ -52,3 +52,4 @@ pick_loop:
     empty_threshold: 3                 # 连续空次数判定料框清空
     max_consecutive_failures: 3        # 连续失败次数则安全停止
     max_picks: 0                       # 单次运行最大抓取数, 0=不限
+    pick_timeout: 120.0                # 单次取放最长等待 s（超时判失败）

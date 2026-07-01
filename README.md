@@ -23,7 +23,11 @@ robotarm/
 │   └── 04_夹爪URDF集成.md     # 沃姆夹爪装到 UR5
 ├── scripts/
 │   ├── check_build.sh         # 一键编译自检（Ubuntu）
-│   └── offline_pose_test.py   # 离线感知/配准测试（Windows 可跑）
+│   ├── offline_pose_test.py   # 离线感知/配准测试（Windows 可跑）
+│   ├── annotate_grasp.py      # CAD 抓取点标注 -> grasp_annotations（Windows 可跑）
+│   ├── handeye_to_yaml.py     # easy_handeye2 结果 -> handeye_result.yaml
+│   ├── record_pointcloud.sh   # 录点云 rosbag（Ubuntu）
+│   └── replay_and_perceive.sh # 回放 rosbag + 感知，离线调参（Ubuntu）
 └── ros2_ws/                   # ROS2 colcon 工作空间（拷到 Ubuntu 构建）
     └── src/
         ├── bin_picking_interfaces/   # 自定义消息/服务
@@ -52,7 +56,8 @@ source install/setup.bash
 - ✅ 阶段 3：抓取规划 + MoveIt2（RRTConnect 自由移动 + 笛卡尔直线接近 + 料框碰撞避障）
 - ✅ 阶段 4：在手位姿重估计 + 放置补偿（`inhand_estimator` + 执行器补偿，`enable_inhand` 开关）
 - ✅ 阶段 5：主状态机 + 鲁棒性（`pick_loop`：循环/清空判定/失败重试）
-- 🚧 夹爪 URDF：参数化占位（`worm_epgc50.xacro`），待填实测尺寸并集成进 MoveIt
+- ✅ 夹爪 URDF：宏 + UR5 组合（`ur5_with_gripper.xacro`，定义 TCP）；待填实测尺寸并集成进 MoveIt SRDF
+- ✅ 工具：CAD 抓取点标注（`scripts/annotate_grasp.py`，Win 可跑）、录包回放（`scripts/*.sh`）
 
 > 标 ✅ 表示**代码已写、待真机测试**。剩余硬件门控项见 `docs/00_开发计划.md`。
 > 仿真验证：`ros2 launch bin_picking_bringup sim.launch.py`（无真机跑通逻辑）。

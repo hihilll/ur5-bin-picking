@@ -9,6 +9,10 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- ur5_with_gripper.xacro 引用 ur_description 的宏与参数 -->
+  <exec_depend>ur_description</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>

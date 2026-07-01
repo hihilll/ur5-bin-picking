@@ -6,6 +6,15 @@
 ## 文件
 - `urdf/worm_epgc50.xacro`：夹爪 xacro 宏（可复用）。**尺寸为占位**，按实物改。
 - `urdf/gripper_standalone.xacro`：独立夹爪，用于单独校验。
+- `urdf/ur5_with_gripper.xacro`：**UR5 + 夹爪组合**（已把宏挂到 `tool0`，定义 `gripper_grasp_tcp`）。
+  第三步的手动拼接现在可直接用此文件；仍需按实物改夹爪尺寸与安装偏置。
+
+## 快速校验组合模型
+```bash
+xacro $(ros2 pkg prefix bin_picking_description)/share/bin_picking_description/urdf/ur5_with_gripper.xacro \
+    > /tmp/ur5g.urdf && check_urdf /tmp/ur5g.urdf
+# RViz: ros2 run robot_state_publisher ... 或用 display launch 看整机+夹爪
+```
 
 ## 第一步：先单独校验夹爪模型
 ```bash

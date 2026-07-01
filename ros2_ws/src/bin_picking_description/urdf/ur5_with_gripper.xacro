@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!--
+  UR5 + 沃姆 EPGC-50 夹爪 组合模型（阶段3.5）。
+  把夹爪宏挂到 UR5 法兰 tool0，得到带指尖 TCP(gripper_grasp_tcp) 的完整机器人，
+  供 RViz 可视化 / MoveIt 自碰撞与避障 / 抓取规划用。
+
+  ⚠️ 两处需按实物核对:
+    1) worm_epgc50 顶部占位尺寸（见 worm_epgc50.xacro）。
+    2) 下面 <origin> 法兰->夹爪基座的安装偏置/朝向（按你的转接板量）。
+
+  校验:
+    xacro $(ros2 pkg prefix bin_picking_description)/share/bin_picking_description/urdf/ur5_with_gripper.xacro \
+        > /tmp/ur5g.urdf && check_urdf /tmp/ur5g.urdf
+  在 MoveIt 里使用：把 grasp_params.yaml 的 tcp_link 改成 gripper_grasp_tcp，
+  并在 SRDF 里加入夹爪连杆 + 设夹爪与 wrist_3_link/tool0 的 allow collision。
+  （MoveIt 配置随 ur_moveit_config，详见 docs/04_夹爪URDF集成.md）
+-->
+<robot name="ur5_with_gripper" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="ur_type" default="ur5"/>
+  <xacro:arg name="tf_prefix" default=""/>
+
+  <!-- ur_description 标准宏 -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+  <!-- 本项目夹爪宏 -->
+  <xacro:include filename="$(find bin_picking_description)/urdf/worm_epgc50.xacro"/>
+
+  <link name="world"/>
+
+  <!-- UR5 本体（参数文件用 ur_description 自带的 ur5 配置）-->
+  <xacro:ur_robot
+      name="$(arg ur_type)"
+      tf_prefix="$(arg tf_prefix)"
+      parent="world"
+      joint_limits_parameters_file="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"
+      kinematics_parameters_file="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"
+      physical_parameters_file="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"
+      visual_parameters_file="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ur_robot>
+
+  <!-- 夹爪装到法兰 tool0。origin 为法兰->夹爪基座安装偏置，按实物改。 -->
+  <xacro:worm_epgc50 prefix="gripper_" parent="tool0">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:worm_epgc50>
+
+</robot>

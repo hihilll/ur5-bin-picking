@@ -21,3 +21,8 @@ Thumbs.db
 
 # ROS2
 *.pyc
+
+# 运行时/标定产物（各机器不同，不入版本库）
+*.calib
+*.bag
+*.db3
