@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!--
+  独立夹爪模型（挂在 world 上），用于单独校验/可视化夹爪 URDF：
+    check_urdf <(xacro gripper_standalone.xacro)
+    ros2 launch ... 或 RViz 加 RobotModel 查看
+-->
+<robot name="worm_epgc50_standalone" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find bin_picking_description)/urdf/worm_epgc50.xacro"/>
+
+  <link name="world"/>
+
+  <xacro:worm_epgc50 prefix="gripper_" parent="world">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:worm_epgc50>
+</robot>

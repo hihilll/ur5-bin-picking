@@ -1,0 +1,54 @@
+gripper_driver:
+  ros__parameters:
+    port: "/dev/ttyUSB0"        # 沃姆夹爪 USB 串口（用 ls /dev/ttyUSB* 确认）
+    baudrate: 115200
+    slave_id: 1
+    simulate: false             # 调试无硬件时设 true
+
+grasp_planner:
+  ros__parameters:
+    base_frame: "base_link"
+    # 抓取标注：CAD 模型系下的抓取位姿，扁平 [x,y,z,roll,pitch,yaw,width] 每7个一组
+    # 默认：在零件原点正上方、夹爪朝下(roll=pi)、开口30mm。按你的零件标定后修改。
+    grasp_annotations: [0.0, 0.0, 0.0, 3.14159, 0.0, 0.0, 0.03]
+    approach_distance: 0.10
+    min_grasp_score: 0.0
+
+grasp_executor:
+  ros__parameters:
+    planning_group: "ur_manipulator"   # UR5 MoveIt 规划组名
+    tcp_link: "tool0"                  # 装夹爪后改为夹爪 TCP 连杆名
+    base_frame: "base_link"
+    approach_distance: 0.10
+    lift_height: 0.15
+    gripper_open_width: 0.05           # 全开 50mm
+    gripper_grasp_force: 50.0
+    gripper_speed: 50.0
+    cartesian_step: 0.005              # 笛卡尔直线插值步长 m
+    cartesian_min_fraction: 0.9        # 直线可行比例低于此则退化为自由规划
+    # 放置位姿（基座系）[x,y,z,qx,qy,qz,qw]
+    # enable_inhand=false: 解释为 TCP 放置位姿; true: 解释为零件目标位姿
+    place_pose: [0.4, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]
+    # 阶段4：在手位姿重估计 + 放置补偿
+    enable_inhand: false               # 装配级精度时设 true
+    inspection_pose: [0.3, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0]  # 举到相机前的 TCP 位姿
+    # 料框碰撞体（基座系，用于 MoveIt 避障）——按真实料框尺寸/位置修改
+    add_bin_collision: true
+    bin_center: [0.5, 0.0, 0.05]       # 料框中心
+    bin_size: [0.4, 0.3, 0.1]          # 料框 长x宽x高
+    bin_wall_thickness: 0.01
+
+inhand_estimator:
+  ros__parameters:
+    base_frame: "base_link"
+    tcp_link: "tool0"
+    stale_timeout: 1.0                 # 检测结果最大时效(s)
+
+pick_loop:
+  ros__parameters:
+    scan_interval: 1.0                 # 每轮等待识别间隔 s
+    settle_time: 1.0                   # 放置后稳定等待 s
+    candidate_timeout: 2.0             # 候选时效 s
+    empty_threshold: 3                 # 连续空次数判定料框清空
+    max_consecutive_failures: 3        # 连续失败次数则安全停止
+    max_picks: 0                       # 单次运行最大抓取数, 0=不限

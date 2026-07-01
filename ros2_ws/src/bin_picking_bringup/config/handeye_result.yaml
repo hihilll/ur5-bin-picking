@@ -1,0 +1,13 @@
+# 手眼标定外参：base_link -> camera_link（Eye-to-Hand）
+# ⚠️ 占位值！请先用 easy_handeye2 标定（阶段1），再把结果填到这里。
+# 平移单位 m，旋转为四元数。
+handeye:
+  parent_frame: "base_link"
+  child_frame: "camera_link"
+  x: 0.5
+  y: 0.0
+  z: 0.8
+  qx: 0.0
+  qy: 1.0
+  qz: 0.0
+  qw: 0.0

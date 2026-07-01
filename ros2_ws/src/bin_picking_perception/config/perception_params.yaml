@@ -1,0 +1,26 @@
+perception_node:
+  ros__parameters:
+    # 输入点云话题（以 OrbbecSDK_ROS2 实际发布为准）
+    input_topic: "/camera/depth_registered/points"
+
+    # CAD 模型（拷到 Ubuntu 后改成绝对路径或用 launch 里的 find 拼接）
+    cad_model_path: ""          # 例: /home/tao/ros2_ws/src/bin_picking_description/meshes/part.stl
+    object_id: "part"
+    model_scale: 0.001          # CAD 用 mm -> 点云用 m
+    model_sample_points: 20000
+
+    # 配准参数
+    voxel_size: 0.003           # 3mm 降采样体素，按零件尺寸调
+    min_fitness: 0.4            # 配准质量阈值，低于此丢弃
+
+    # 工作区裁剪（相机系，单位 m）——按你料框在相机下的实际位置标定
+    workspace_min: [-0.3, -0.3, 0.2]
+    workspace_max: [0.3, 0.3, 1.0]
+
+    # 分割/聚类
+    plane_distance: 0.005       # 去料框底平面阈值
+    cluster_eps: 0.01           # DBSCAN 邻域半径
+    cluster_min_points: 100     # 一个零件簇的最小点数
+
+    max_objects: 5              # 每帧最多识别几个
+    process_every_n: 5          # 每 N 帧处理一次（降负载）

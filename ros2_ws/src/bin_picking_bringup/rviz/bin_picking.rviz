@@ -1,0 +1,47 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Global Options:
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Topic:
+        Value: /robot_description
+    - Class: rviz_default_plugins/PointCloud2
+      Name: SceneCloud
+      Enabled: true
+      Topic:
+        Value: /camera/depth_registered/points
+      Size (m): 0.002
+      Style: Points
+    - Class: rviz_default_plugins/MarkerArray
+      Name: DetectedObjects
+      Enabled: true
+      Topic:
+        Value: /detected_markers
+    - Class: rviz_default_plugins/MarkerArray
+      Name: GraspCandidates
+      Enabled: true
+      Topic:
+        Value: /grasp_markers
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 2.0
+      Focal Point:
+        X: 0.3
+        Y: 0.0
+        Z: 0.3

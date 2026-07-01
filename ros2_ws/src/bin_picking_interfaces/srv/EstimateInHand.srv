@@ -1,0 +1,7 @@
+# 估计被夹爪夹持的零件相对夹爪 TCP 的位姿（在手位姿重估计）
+# 请求前应已把零件举到相机视野内（检视位）
+---
+bool success
+string message
+geometry_msgs/Transform gripper_to_part   # T_tcp->part
+float32 fitness                            # 配准质量

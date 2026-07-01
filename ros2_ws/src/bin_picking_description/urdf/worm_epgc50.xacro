@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<!--
+  沃姆 EPGC-50-150 二指平行夹爪 xacro 宏（参数化占位）。
+  行程 50mm（每指 ±25mm），负载 3kg。
+  ⚠️ 以下尺寸为占位估计，请按沃姆实物图纸/CAD 修改 <xacro:property>。
+  定义:
+    <prefix>base_link   夹爪基座（固连到机械臂法兰 tool0）
+    <prefix>left_finger / right_finger  两指（prismatic）
+    <prefix>grasp_tcp   夹爪工具中心点（两指中间、指尖处）—— 抓取规划用此 frame
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="worm_epgc50" params="prefix parent *origin">
+
+    <!-- ===== 占位尺寸（按实物修改）===== -->
+    <xacro:property name="body_len" value="0.060"/>   <!-- 沿接近轴(Z)长度 -->
+    <xacro:property name="body_w"   value="0.050"/>
+    <xacro:property name="body_h"   value="0.050"/>
+    <xacro:property name="finger_len"   value="0.040"/>
+    <xacro:property name="finger_w"     value="0.010"/>
+    <xacro:property name="finger_thick" value="0.008"/>
+    <xacro:property name="stroke_half"  value="0.025"/> <!-- 单指行程 25mm -->
+    <xacro:property name="mass_body"    value="0.30"/>
+    <!-- TCP 距基座(沿Z)的距离 = 本体长 + 指长 -->
+    <xacro:property name="tcp_z" value="${body_len + finger_len}"/>
+
+    <!-- 基座，固连到 parent(tool0) -->
+    <joint name="${prefix}base_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${prefix}base_link"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+
+    <link name="${prefix}base_link">
+      <visual>
+        <origin xyz="0 0 ${body_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${body_w} ${body_h} ${body_len}"/></geometry>
+        <material name="worm_gray"><color rgba="0.3 0.3 0.3 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${body_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${body_w} ${body_h} ${body_len}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="${mass_body}"/>
+        <inertia ixx="1e-4" iyy="1e-4" izz="1e-4" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- 左指：沿 +X 平移 -->
+    <joint name="${prefix}left_finger_joint" type="prismatic">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}left_finger"/>
+      <origin xyz="0 0 ${body_len}" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="0.0" upper="${stroke_half}" effort="50" velocity="0.1"/>
+    </joint>
+    <link name="${prefix}left_finger">
+      <visual>
+        <origin xyz="0 0 ${finger_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${finger_thick} ${finger_w} ${finger_len}"/></geometry>
+        <material name="worm_gray"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${finger_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${finger_thick} ${finger_w} ${finger_len}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.02"/>
+        <inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- 右指：沿 -X 平移（mimic 左指）-->
+    <joint name="${prefix}right_finger_joint" type="prismatic">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}right_finger"/>
+      <origin xyz="0 0 ${body_len}" rpy="0 0 0"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="0.0" upper="${stroke_half}" effort="50" velocity="0.1"/>
+      <mimic joint="${prefix}left_finger_joint" multiplier="1.0" offset="0.0"/>
+    </joint>
+    <link name="${prefix}right_finger">
+      <visual>
+        <origin xyz="0 0 ${finger_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${finger_thick} ${finger_w} ${finger_len}"/></geometry>
+        <material name="worm_gray"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${finger_len/2}" rpy="0 0 0"/>
+        <geometry><box size="${finger_thick} ${finger_w} ${finger_len}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.02"/>
+        <inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- TCP：两指中间、指尖处。抓取规划用此 frame（grasp_executor 的 tcp_link）-->
+    <link name="${prefix}grasp_tcp"/>
+    <joint name="${prefix}grasp_tcp_joint" type="fixed">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}grasp_tcp"/>
+      <origin xyz="0 0 ${tcp_z}" rpy="0 0 0"/>
+    </joint>
+
+  </xacro:macro>
+</robot>
