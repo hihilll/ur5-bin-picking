@@ -1,0 +1,27 @@
+model_free_grasp:
+  ros__parameters:
+    # 输入点云话题（以 OrbbecSDK_ROS2 实际发布为准）
+    input_topic: "/camera/depth_registered/points"
+    base_frame: "base_link"
+    object_id: "unknown"
+
+    # 工作区裁剪（**基座系** m，点云会先经 TF 转到基座系再裁）
+    # 按你桌面/料框在机器人坐标下的实际范围改；z 下限略高于桌面以便去平面
+    workspace_min: [0.2, -0.3, 0.0]
+    workspace_max: [0.8,  0.3, 0.4]
+
+    voxel_size: 0.002          # 小物件(螺丝螺母)用更细体素
+    remove_plane: true         # 去桌面/框底
+    plane_distance: 0.005
+    cluster_eps: 0.008         # DBSCAN 邻域半径(小物件调小)
+    cluster_min_points: 30     # 一个物体簇最小点数
+    max_objects: 10
+    process_every_n: 5         # 每 N 帧处理一次
+
+    # 夹爪与抓取几何
+    gripper_max_width: 0.05    # 行程 50mm
+    gripper_min_width: 0.002
+    width_margin: 0.005        # 目标开口 = 物体短边宽度 + 余量
+    grasp_depth: 0.005         # 抓取点从簇顶下沉量(m)
+    max_grasp_extent: 0.06     # 短边宽度超此判为不可抓/背景
+</content>

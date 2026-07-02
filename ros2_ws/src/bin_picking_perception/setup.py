@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'perception_node = bin_picking_perception.perception_node:main',
+            'model_free_grasp = bin_picking_perception.model_free_grasp:main',
         ],
     },
 )

@@ -67,7 +67,9 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('enable_robot', default_value='false'),
         DeclareLaunchArgument('ur_type', default_value='ur5'),
-        DeclareLaunchArgument('robot_ip', default_value='192.168.1.102'),
+        DeclareLaunchArgument('robot_ip', default_value='192.168.0.11'),
+        # RTDE 握手超时(ms)。网络延迟大时防止驱动因握手超时 SIGABRT。
+        DeclareLaunchArgument('rtde_config_package_timeout', default_value='500'),
     ]
 
     # --- (可选) 相机 ---
@@ -84,6 +86,8 @@ def generate_launch_description():
         launch_arguments={
             'ur_type': LaunchConfiguration('ur_type'),
             'robot_ip': LaunchConfiguration('robot_ip'),
+            'rtde_config_package_timeout': LaunchConfiguration(
+                'rtde_config_package_timeout'),
             'launch_rviz': 'false',
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_robot')))

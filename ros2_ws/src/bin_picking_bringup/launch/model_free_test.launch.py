@@ -1,13 +1,20 @@
-"""系统总启动：相机 + UR5 + MoveIt2 + 手眼TF + 感知 + 抓取。
+"""无模型抓取测试总启动（不依赖 CAD）。
+
+用途：手头只有螺丝/螺母等小物件、没有 CAD 模型时，跑通
+  相机 -> 手眼TF -> 无模型抓取 -> MoveIt2 -> 夹爪 整条闭环。
+
+与 system.launch.py 的区别：
+  用 `model_free_grasp`(点云直接算俯视抓取) 替代 `perception_node + grasp_planner`，
+  其余(UR驱动/MoveIt/相机/手眼TF/夹爪/执行器/状态机)完全一致。两条链路互不影响。
 
 用法示例:
-  ros2 launch bin_picking_bringup system.launch.py \
-      robot_ip:=192.168.0.11 \
-      cad_model_path:=/home/tao/ros2_ws/src/bin_picking_description/meshes/part.stl
+  ros2 launch bin_picking_bringup model_free_test.launch.py \
+      robot_ip:=192.168.0.11
 
-各组件可用 enable_* 参数单独开关，便于分阶段调试。
-手眼标定外参(base_link -> camera_link)从 config/handeye_result.yaml 读取，
-首次运行前请先用 easy_handeye2 标定并把结果填进去（见 docs）。
+分阶段调试:
+  只看抓取候选(不动机械臂): enable_robot:=false enable_moveit:=false
+    然后在 RViz 里看 /grasp_markers 是否对准物体。
+  确认无误后再开 robot/moveit，调用 /pick_place/run 或 /bin_picking/start。
 """
 
 import os
@@ -46,13 +53,10 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument('ur_type', default_value='ur5'),
         DeclareLaunchArgument('robot_ip', default_value='192.168.0.11'),
-        # RTDE 握手超时(ms)。网络延迟大时驱动会因握手超时 SIGABRT，放宽到 500 兜底。
         DeclareLaunchArgument('rtde_config_package_timeout', default_value='500'),
-        DeclareLaunchArgument('cad_model_path', default_value=''),
         DeclareLaunchArgument('enable_robot', default_value='true'),
         DeclareLaunchArgument('enable_camera', default_value='true'),
         DeclareLaunchArgument('enable_moveit', default_value='true'),
-        DeclareLaunchArgument('enable_perception', default_value='true'),
         DeclareLaunchArgument('enable_grasp', default_value='true'),
     ]
 
@@ -96,25 +100,18 @@ def generate_launch_description():
                    '--frame-id', handeye[7], '--child-frame-id', handeye[8]],
         condition=IfCondition(LaunchConfiguration('enable_camera')))
 
-    # --- 感知 ---
-    perception = Node(
-        package='bin_picking_perception', executable='perception_node',
-        name='perception_node', output='screen',
-        parameters=[
-            os.path.join(perception_share, 'config', 'perception_params.yaml'),
-            {'cad_model_path': LaunchConfiguration('cad_model_path')},
-        ],
-        condition=IfCondition(LaunchConfiguration('enable_perception')))
+    # --- 无模型抓取（替代 perception_node + grasp_planner）---
+    model_free = Node(
+        package='bin_picking_perception', executable='model_free_grasp',
+        name='model_free_grasp', output='screen',
+        parameters=[os.path.join(
+            perception_share, 'config', 'model_free_params.yaml')])
 
-    # --- 抓取链 ---
+    # --- 抓取执行链（与 system.launch 相同，去掉 grasp_planner）---
     grasp_params = os.path.join(grasp_share, 'config', 'grasp_params.yaml')
     grasp_group = GroupAction([
         Node(package='bin_picking_grasp', executable='gripper_driver',
              name='gripper_driver', output='screen', parameters=[grasp_params]),
-        Node(package='bin_picking_grasp', executable='grasp_planner',
-             name='grasp_planner', output='screen', parameters=[grasp_params]),
-        Node(package='bin_picking_grasp', executable='inhand_estimator',
-             name='inhand_estimator', output='screen', parameters=[grasp_params]),
         Node(package='bin_picking_grasp', executable='grasp_executor',
              name='grasp_executor', output='screen', parameters=[grasp_params]),
         Node(package='bin_picking_grasp', executable='pick_loop',
@@ -123,5 +120,6 @@ def generate_launch_description():
 
     return LaunchDescription(args + [
         ur_control, ur_moveit, camera, static_tf_camera,
-        perception, grasp_group,
+        model_free, grasp_group,
     ])
+</content>
