@@ -22,7 +22,14 @@ robotarm/
 │   ├── 03_测试步骤.md         # 自底向上详细测试流程
 │   ├── 04_夹爪URDF集成.md     # 沃姆夹爪装到 UR5
 │   ├── 05_手眼标定.md         # 阶段1 标定完整流程
-│   └── 06_操作手册.md         # 从编译到跑通的命令速查（含标定）
+│   ├── 06_操作手册.md         # 从编译到跑通的命令速查（含标定）
+│   ├── 07_无模型抓取测试.md   # 无 CAD 抓螺丝螺母（model_free_grasp）
+│   ├── 08_阶段二大模型接入.md # SAM-6D/FoundationPose/学习抓取 集成指南
+│   ├── 09_整机测试教程.md     # ★硬件安装接线 + 全流程测试命令一站式教程
+│   └── 10_移动操作方向调研.md # 法奥FR+小车 新方向：文献调研与推进路径
+├── inference/                 # 阶段二推理服务（conda/Docker 独立环境，非 ROS）
+│   ├── server.py              # ZMQ 服务入口（--fake 假模式可先通链路）
+│   └── wrappers/              # sam6d / foundationpose / grasp 模型包装（TODO 待集成）
 ├── scripts/
 │   ├── check_build.sh         # 一键编译自检（Ubuntu）
 │   ├── offline_pose_test.py   # 离线感知/配准测试（Windows 可跑）
@@ -33,7 +40,8 @@ robotarm/
 └── ros2_ws/                   # ROS2 colcon 工作空间（拷到 Ubuntu 构建）
     └── src/
         ├── bin_picking_interfaces/   # 自定义消息/服务
-        ├── bin_picking_perception/   # 感知：PPF+ICP 6D 位姿估计
+        ├── bin_picking_perception/   # 阶段一感知：PPF+ICP 6D 位姿估计
+        ├── bin_picking_perception_v2/# 阶段二感知：大模型推理客户端（ZMQ→inference/）
         ├── bin_picking_grasp/        # 夹爪驱动 + 抓取规划 + MoveIt2 执行 + 在手补偿 + 状态机
         ├── bin_picking_bringup/      # 总启动 launch + 仿真 + RViz + 手眼外参
         └── bin_picking_description/  # 料框场景 + 零件 CAD + 夹爪 URDF
@@ -60,6 +68,8 @@ source install/setup.bash
 - ✅ 阶段 5：主状态机 + 鲁棒性（`pick_loop`：循环/清空判定/失败重试）
 - ✅ 夹爪 URDF：宏 + UR5 组合（`ur5_with_gripper.xacro`，定义 TCP）；待填实测尺寸并集成进 MoveIt SRDF
 - ✅ 工具：CAD 抓取点标注（`scripts/annotate_grasp.py`，Win 可跑）、录包回放（`scripts/*.sh`）
+- 🔶 阶段二（大模型感知）：**骨架已写**（客户端/服务/launch/文档），模型本体待在
+  Ubuntu+GPU 上按 `docs/08_阶段二大模型接入.md` 集成（wrapper 内为 TODO）
 
 > 标 ✅ 表示**代码已写、待真机测试**。剩余硬件门控项见 `docs/00_开发计划.md`。
 > 仿真验证：`ros2 launch bin_picking_bringup sim.launch.py`（无真机跑通逻辑）。

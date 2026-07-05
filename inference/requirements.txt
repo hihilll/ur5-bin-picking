@@ -1,0 +1,6 @@
+# 推理服务基础依赖（fake 模式只需这几个）
+pyzmq
+numpy
+# 真实模型模式还需（通常随各模型环境自带，缺则补）:
+# opencv-python pillow trimesh
+# 各模型重依赖(pytorch/CUDA/nvdiffrast/hydra/gorilla 等)按 docs/08 装各自环境

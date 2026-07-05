@@ -1,0 +1,45 @@
+# 阶段二感知客户端参数。
+# 推理服务(inference/server.py)默认三个模型同进程同端口(4090 24G 放得下)；
+# 若依赖冲突需拆分环境，可分端口起多个 server 实例，改各自 server_address 即可。
+
+sam6d_client:
+  ros__parameters:
+    rgb_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/depth/image_raw"      # ⚠️ 必须为对齐到彩色的深度
+    camera_info_topic: "/camera/color/camera_info"
+    server_address: "tcp://127.0.0.1:5555"
+    request_timeout: 10.0        # SAM-6D 全流程(分割+位姿)较慢，放宽
+    process_every_n: 15          # 位姿估计不需要高频
+    object_id: "part"
+    min_score: 0.3
+    max_objects: 5
+
+foundationpose_client:
+  ros__parameters:
+    rgb_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/depth/image_raw"
+    camera_info_topic: "/camera/color/camera_info"
+    server_address: "tcp://127.0.0.1:5555"
+    request_timeout: 10.0        # register 首帧 ~1-2s，track ~30ms
+    process_every_n: 3           # 检视时希望较快收敛
+    object_id: "part"
+    min_score: 0.2
+
+grasp_client:
+  ros__parameters:
+    rgb_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/depth/image_raw"
+    camera_info_topic: "/camera/color/camera_info"
+    server_address: "tcp://127.0.0.1:5555"
+    request_timeout: 5.0
+    process_every_n: 10
+    base_frame: "base_link"
+    object_id: "unknown"
+    max_grasps: 10
+    min_score: 0.2
+    gripper_max_width: 0.05      # 行程 50mm
+    gripper_min_width: 0.002
+    max_approach_angle_deg: 60.0 # 接近方向与竖直向下的最大夹角
+    # 工作区过滤（基座系）——按料框实际位置改，与 model_free_params 一致
+    workspace_min: [0.2, -0.3, 0.0]
+    workspace_max: [0.8,  0.3, 0.4]

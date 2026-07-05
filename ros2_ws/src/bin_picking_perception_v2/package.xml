@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bin_picking_perception_v2</name>
+  <version>0.0.1</version>
+  <description>阶段二感知：大模型推理客户端（SAM-6D 位姿 / FoundationPose 在手 / 学习型抓取检测），经 ZMQ 调用独立推理服务</description>
+  <maintainer email="taol16550@gmail.com">tao</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>bin_picking_interfaces</exec_depend>
+  <exec_depend>bin_picking_grasp</exec_depend>
+  <!-- Python 第三方依赖: pip install pyzmq numpy opencv-python，见 docs/08_阶段二大模型接入.md -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
