@@ -21,10 +21,16 @@
 ⚠️ 上电若未初始化会自动触发校准（auto_calibrate 参数控制）——
    校准会让夹爪**全行程开合一次**，首次上电务必确保手指周围无障碍。
 
-真机核对点（盲写自手册，报错按此排查）：
-  [V1] U32 写入字序：默认高字在前 [hi,lo]；若写位置后不动/报非法值，改成 [lo,hi]
-  [V2] 若通电后写位置不动且工况=4(卸力)：需先写 0x00E2 bit0(=1) 关闭卸力
-  [V3] 默认波特率/站号：用 scripts/test_gripper_modbus.py --scan-slaves 探测
+真机实测结论（2026-07，诊断脚本 scripts/diag_gripper_write*.py）：
+  [V1·已定] U32 字序 = **低字在前 [lo,hi]**（反馈[9999,0]=全开、写[0,10000]报异常码3）
+  [V3·已定] 波特率 115200 / 站号 1（0x00F1=6、0x00F0=1 读回确认）
+  [写法·关键] 该机型 **不支持 FC06 写单寄存器**（异常码1"非法功能"），只认 FC16；
+    且 FC16 必须**从 0x0020 或 0x0024 起始成块写**（0x0022 起始/单寄存器计数无应答）
+    → 运动参数一律 4 连写 [速度,加速度,减速度,电流] @0x0020，位置 2 连写 @0x0024
+  [参数区出厂全0] 速度/电流为 0 时写位置不报错但不动、工况卡"运动中"——所以
+    每次动作前都重写参数块
+  [寄存器差异] 0x1114满行程/0x1117满电流 这台不存在（读兜底50mm）；0x0006≈温度℃
+  工况枚举与手册一致：0到位 1运动中 2夹住（滑块顶到限位也报"夹住"）
 
 依赖: pip install pymodbus pyserial
 对外服务: /gripper/set_gripper  (bin_picking_interfaces/SetGripper)
@@ -167,10 +173,8 @@ class GripperDriver(Node):
                     '夹爪未初始化(0x0002 bit0=1) 且 auto_calibrate=false，'
                     '写位置将无效；请先手动校准')
 
-        # 写一次加/减速
-        acc = self._percent_to_permyriad(self.accel_percent)
-        self._write(REG_ACCEL, acc)
-        self._write(REG_DECEL, acc)
+        # 写一次运动参数块（出厂全 0，不写电机不出力）
+        self._write_motion_params(self.default_speed, self.default_force)
 
     def _calibrate(self) -> bool:
         self.get_logger().warn('夹爪未初始化，触发校准(0x00E4 bit1)——将全行程开合一次！')
@@ -202,31 +206,35 @@ class GripperDriver(Node):
             self.get_logger().warn(f'读寄存器 {hex(address)} 异常: {e}')
             return None
 
-    def _write(self, address: int, value: int) -> bool:
+    def _write_block(self, address: int, values: list) -> bool:
+        """FC16 成块写。该机型不支持 FC06，且块须从 0x0020/0x0024 等起始地址写。"""
         if self.simulate or self.client is None:
-            self.get_logger().info(f'[模拟] 写寄存器 {hex(address)} = {value}')
-            return True
-        try:
-            rr = self.client.write_register(
-                address, value, **{self._id_kw: self.slave_id})
-            return not rr.isError()
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().warn(f'写寄存器 {hex(address)} 异常: {e}')
-            return False
-
-    def _write_u32(self, address: int, value: int) -> bool:
-        """写 U32（占两个寄存器）。[V1] 默认高字在前，若设备拒收改 [lo, hi]。"""
-        hi, lo = (value >> 16) & 0xFFFF, value & 0xFFFF
-        if self.simulate or self.client is None:
-            self.get_logger().info(f'[模拟] 写U32 {hex(address)} = {value}')
+            self.get_logger().info(f'[模拟] 写寄存器块 {hex(address)} = {values}')
             return True
         try:
             rr = self.client.write_registers(
-                address, [hi, lo], **{self._id_kw: self.slave_id})
+                address, values, **{self._id_kw: self.slave_id})
             return not rr.isError()
         except Exception as e:  # noqa: BLE001
-            self.get_logger().warn(f'写U32 {hex(address)} 异常: {e}')
+            self.get_logger().warn(f'写寄存器块 {hex(address)} 异常: {e}')
             return False
+
+    def _write(self, address: int, value: int) -> bool:
+        """单值写（仅用于 0x00E2/0x00E4 开关量；FC06 不被支持，走 FC16）。"""
+        return self._write_block(address, [value])
+
+    def _write_motion_params(self, speed_percent: float,
+                             force_percent: float) -> bool:
+        """从 0x0020 连写 [速度,加速度,减速度,电流]（实测只认从此起始的块写）。"""
+        acc = self._percent_to_permyriad(self.accel_percent)
+        return self._write_block(REG_SPEED, [
+            self._percent_to_permyriad(speed_percent), acc, acc,
+            self._percent_to_permyriad(force_percent)])
+
+    def _write_u32(self, address: int, value: int) -> bool:
+        """写 U32（占两个寄存器）。[V1·实测] 低字在前 [lo, hi]。"""
+        hi, lo = (value >> 16) & 0xFFFF, value & 0xFFFF
+        return self._write_block(address, [lo, hi])
 
     # ---------- 换算 ----------
     @staticmethod
@@ -259,21 +267,20 @@ class GripperDriver(Node):
         fb = self._read(REG_POS_FB, count=2)
         width_fb = None
         if fb is not None:
-            width_fb = self.counts_to_width((fb[0] << 16) | fb[1])  # [V1] 字序同写
+            width_fb = self.counts_to_width((fb[1] << 16) | fb[0])  # 低字在前
         return status, width_fb
 
     # ---------- 服务 ----------
     def on_set_gripper(self, request: SetGripper.Request,
                        response: SetGripper.Response):
         pos = self.width_to_counts(request.width)
-        force = self._percent_to_permyriad(
-            request.force if request.force > 0 else self.default_force)
-        speed = self._percent_to_permyriad(
-            request.speed if request.speed > 0 else self.default_speed)
+        force_pct = request.force if request.force > 0 else self.default_force
+        speed_pct = request.speed if request.speed > 0 else self.default_speed
+        force = self._percent_to_permyriad(force_pct)
+        speed = self._percent_to_permyriad(speed_pct)
 
-        ok = True
-        ok &= self._write(REG_SPEED, speed)
-        ok &= self._write(REG_CURRENT, force)
+        # 每次动作前重写参数块（该机型参数区出厂全0，不写电机不动）
+        ok = self._write_motion_params(speed_pct, force_pct)
         ok &= self._write_u32(REG_TARGET_POS, pos)
         if not ok:
             response.success = False

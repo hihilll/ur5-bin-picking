@@ -4,7 +4,9 @@ gripper_driver:
     baudrate: 115200            # 已实测（厂家上位机读回 115200/站号1）
     slave_id: 1
     simulate: false             # 调试无硬件时设 true
-    width_offset: 0.0           # 自制手指闭合残隙(m)，真机卡尺标定
+    # 指尖全闭能贴合(间隙0)，但滑块闭到底反馈≈363计数(1.8mm)不归零 → 偏移为负
+    # 校验：发全闭指令，驱动日志"实际开口"应≈0.0mm；不为0则 width_offset -= 该值
+    width_offset: -0.0018
     auto_calibrate: true        # 上电未初始化自动校准（全行程开合一次！）
 
 grasp_planner:

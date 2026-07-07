@@ -1,8 +1,11 @@
 <?xml version="1.0"?>
 <!--
-  沃姆 EPGC-50-150 二指平行夹爪 xacro 宏（参数化占位）。
-  行程 50mm（每指 ±25mm），负载 3kg。手指为用户自制。
-  ⚠️ 以下尺寸为占位估计，请按实物测量修改 <xacro:property>（finger_len 量自制手指）。
+  沃姆 EPGC-50-150 二指平行夹爪 xacro 宏。
+  行程 50mm（每指 ±25mm），负载 3kg。
+  尺寸实测（2026-07）：法兰面→指尖 112.7mm = 转接板12(挂载origin)
+  + 本体95 + 滑块段5.7(滑块-本体缝隙1.7+滑块4)。当前直接用滑块夹持、无加长手指；
+  若后续加装手指，改 finger_len 并重标 width_offset 即可。
+  ⚠️ body_w/body_h、finger_w/finger_thick 仍为占位（仅碰撞体，待实测）。
   定义:
     <prefix>base_link   夹爪基座（固连到机械臂法兰 tool0）
     <prefix>left_finger / right_finger  两指（prismatic）
@@ -12,13 +15,14 @@
 
   <xacro:macro name="worm_epgc50" params="prefix parent *origin">
 
-    <!-- ===== 占位尺寸（按实物修改）===== -->
-    <xacro:property name="body_len" value="0.060"/>   <!-- 沿接近轴(Z)长度 -->
-    <xacro:property name="body_w"   value="0.050"/>
-    <xacro:property name="body_h"   value="0.050"/>
-    <xacro:property name="finger_len"   value="0.040"/>
-    <xacro:property name="finger_w"     value="0.010"/>
-    <xacro:property name="finger_thick" value="0.008"/>
+    <!-- ===== 尺寸（Z向两项已实测；横向宽高为占位待测）===== -->
+    <xacro:property name="body_len" value="0.095"/>   <!-- 实测：安装面→滑块根 -->
+    <!-- 本体不规则，用 66x53 外廓包络盒近似（实测）；假定 66 沿开合方向(X) -->
+    <xacro:property name="body_w"   value="0.066"/>
+    <xacro:property name="body_h"   value="0.053"/>
+    <xacro:property name="finger_len"   value="0.0057"/> <!-- 实测：缝隙1.7+滑块4 -->
+    <xacro:property name="finger_w"     value="0.010"/>  <!-- 占位 -->
+    <xacro:property name="finger_thick" value="0.008"/>  <!-- 占位 -->
     <xacro:property name="stroke_half"  value="0.025"/> <!-- 单指行程 25mm -->
     <xacro:property name="mass_body"    value="0.30"/>
     <!-- TCP 距基座(沿Z)的距离 = 本体长 + 指长 -->
