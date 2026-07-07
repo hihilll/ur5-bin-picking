@@ -9,13 +9,17 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>bin_picking_interfaces</exec_depend>
-  <exec_depend>moveit_py</exec_depend>
+  <!-- MoveIt 集成：通过 move_group 标准 action/service 接口（不用 moveit_py，
+       后者在 Humble apt 版 MoveIt 中不存在）。仅需消息/服务定义。 -->
+  <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>shape_msgs</exec_depend>
   <!-- 串口通信(夹爪)用 pip 安装 pyserial / pymodbus，见 docs -->
 
   <test_depend>ament_copyright</test_depend>

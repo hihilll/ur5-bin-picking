@@ -8,8 +8,13 @@
   <license>Apache-2.0</license>
 
   <exec_depend>ur_robot_driver</exec_depend>
+  <exec_depend>ur_description</exec_depend>
   <exec_depend>ur_moveit_config</exec_depend>
   <exec_depend>orbbec_camera</exec_depend>
+  <!-- MoveIt 集成：自建 move_group launch（组合模型 URDF/SRDF），见 launch/moveit.launch.py -->
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>xacro</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

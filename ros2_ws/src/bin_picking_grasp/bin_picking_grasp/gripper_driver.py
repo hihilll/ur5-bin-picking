@@ -42,6 +42,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 
 from bin_picking_interfaces.srv import SetGripper
 
@@ -107,6 +108,12 @@ class GripperDriver(Node):
         self.declare_parameter('accel_percent', 50.0)    # 启动时写一次加/减速
         # 动作完成等待：写完位置后轮询工况直到 到位/夹住 或超时；0=不等待
         self.declare_parameter('move_timeout', 3.0)
+        # 向 /joint_states 发布手指开度（MoveIt 碰撞检测/RViz 显示用）。
+        # robot_state_publisher 会按名字合并多个来源，与 UR 关节广播器并存不冲突；
+        # 右指是 mimic 关节，只需发左指。stroke_half=0.025（单指行程 25mm）。
+        self.declare_parameter('publish_joint_states', True)
+        self.declare_parameter('finger_joint_name', 'gripper_left_finger_joint')
+        self.declare_parameter('finger_stroke_half', 0.025)
 
         gp = self.get_parameter
         self.port = gp('port').value
@@ -120,6 +127,9 @@ class GripperDriver(Node):
         self.default_speed = gp('default_speed_percent').value
         self.accel_percent = gp('accel_percent').value
         self.move_timeout = gp('move_timeout').value
+        self.publish_js = gp('publish_joint_states').value
+        self.finger_joint_name = gp('finger_joint_name').value
+        self.finger_stroke_half = gp('finger_stroke_half').value
 
         self.stroke_m = 0.050      # 满行程(EPGC-50)，连上后从 0x1114 读实际值覆盖
         self.client = None
@@ -128,6 +138,12 @@ class GripperDriver(Node):
 
         self.srv = self.create_service(
             SetGripper, '/gripper/set_gripper', self.on_set_gripper)
+
+        # 手指开度发布（供 MoveIt/robot_state_publisher）。初始按闭合(0)。
+        self._finger_pos = 0.0
+        if self.publish_js:
+            self.js_pub = self.create_publisher(JointState, '/joint_states', 10)
+            self.js_timer = self.create_timer(0.1, self._publish_joint_state)
         self.get_logger().info(
             f'夹爪驱动已启动 (port={self.port}, simulate={self.simulate}, '
             f'stroke={self.stroke_m*1000:.0f}mm, width_offset='
@@ -251,6 +267,19 @@ class GripperDriver(Node):
     def counts_to_width(self, counts: int) -> float:
         return self.width_offset + counts / COUNT_MAX * self.stroke_m
 
+    # ---------- 关节状态发布（手指开度） ----------
+    def _width_to_finger(self, width_m: float) -> float:
+        """指尖开口(m) -> 单指 prismatic 关节值(m)。两指对称各走一半。"""
+        travel = max(0.0, min(self.stroke_m, width_m - self.width_offset))
+        return max(0.0, min(self.finger_stroke_half, travel / 2.0))
+
+    def _publish_joint_state(self):
+        js = JointState()
+        js.header.stamp = self.get_clock().now().to_msg()
+        js.name = [self.finger_joint_name]
+        js.position = [self._finger_pos]
+        self.js_pub.publish(js)
+
     # ---------- 动作完成等待 ----------
     def _wait_motion_done(self, timeout: float):
         """轮询工况直到离开'运动中'。返回 (状态码 或 None, 反馈开口m 或 None)。"""
@@ -274,6 +303,7 @@ class GripperDriver(Node):
     def on_set_gripper(self, request: SetGripper.Request,
                        response: SetGripper.Response):
         pos = self.width_to_counts(request.width)
+        self._finger_pos = self._width_to_finger(request.width)  # 更新关节发布
         force_pct = request.force if request.force > 0 else self.default_force
         speed_pct = request.speed if request.speed > 0 else self.default_speed
         force = self._percent_to_permyriad(force_pct)

@@ -40,11 +40,14 @@ EPGC-50 总行程 50mm → 每指 0.025）、`tcp_z`（TCP 距基座距离）。
 </xacro:worm_epgc50>
 ```
 
-## 第四步：让 MoveIt / 抓取使用新 TCP
-- 把 `grasp_params.yaml` 里 `grasp_executor` 和 `inhand_estimator` 的
-  `tcp_link` 由 `tool0` 改为 **`gripper_grasp_tcp`**。
-- MoveIt 的 SRDF 需把夹爪连杆加入（或重新用 MoveIt Setup Assistant 生成），
-  并设置夹爪与末端连杆的 **allow collision**（避免自碰撞误报）。
+## 第四步：让 MoveIt / 抓取使用新 TCP　✅ 已完成（见 `docs/13`）
+- ✅ `grasp_params.yaml` 里 `grasp_executor` 和 `inhand_estimator` 的
+  `tcp_link` 已改为 **`gripper_grasp_tcp`**。
+- ✅ SRDF 已写好：`srdf/ur5_with_gripper.srdf.xacro`（官方 `ur_srdf` 宏 +
+  夹爪组/末端执行器/手指 passive/夹爪与手腕 allow-collision），无需再跑 Setup Assistant。
+- ✅ 驱动描述文件 `urdf/ur5_with_gripper_control.xacro`（含 ros2_control）+
+  自建 `moveit.launch.py` 已把组合模型接入 MoveIt。**整套 MoveIt 集成说明见 `docs/13`。**
+- 仍需按实物核对：夹爪安装偏置 `<origin z="0.012">`（转接板厚）与夹爪尺寸。
 
 ## 第五步（可选）：ros2_control 控制手指关节
 当前夹爪走独立 USB（`gripper_driver` 节点），URDF 里的 prismatic 关节主要用于

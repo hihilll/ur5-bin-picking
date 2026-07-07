@@ -1,7 +1,8 @@
 """启动抓取链：夹爪驱动 + 抓取规划 + 取放执行。
 
-注意: grasp_executor 依赖 MoveIt2(moveit_py)，通常需配合 UR 的 MoveIt launch 一起跑，
-      推荐用 bin_picking_bringup 的总 launch。本文件用于单独调试抓取链。
+注意: grasp_executor 通过 move_group 标准接口规划运动，需先起 MoveIt
+      （`bin_picking_bringup moveit.launch.py` 或总 launch）。本文件仅调试抓取链本身；
+      未起 MoveIt 时给 grasp_executor 传 simulate:=true 只打印动作序列。
 """
 
 import os

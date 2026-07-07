@@ -31,7 +31,7 @@ class InHandEstimator(Node):
     def __init__(self):
         super().__init__('inhand_estimator')
         self.declare_parameter('base_frame', 'base_link')
-        self.declare_parameter('tcp_link', 'tool0')
+        self.declare_parameter('tcp_link', 'gripper_grasp_tcp')  # 夹爪指尖 TCP
         self.declare_parameter('stale_timeout', 1.0)   # 检测结果最大时效(s)
 
         self.base_frame = self.get_parameter('base_frame').value

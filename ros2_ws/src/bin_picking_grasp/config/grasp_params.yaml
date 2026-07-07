@@ -21,8 +21,9 @@ grasp_planner:
 grasp_executor:
   ros__parameters:
     planning_group: "ur_manipulator"   # UR5 MoveIt 规划组名
-    tcp_link: "tool0"                  # 装夹爪后改为夹爪 TCP 连杆名
+    tcp_link: "gripper_grasp_tcp"      # 夹爪指尖 TCP（组合模型 ur5_with_gripper）
     base_frame: "base_link"
+    simulate: false                    # true=不连 MoveIt，只打印动作（纯逻辑测试）
     approach_distance: 0.10
     lift_height: 0.15
     gripper_open_width: 0.05           # 全开 50mm (EPGC-50)
@@ -30,6 +31,14 @@ grasp_executor:
     gripper_speed: 50.0
     cartesian_step: 0.005              # 笛卡尔直线插值步长 m
     cartesian_min_fraction: 0.9        # 直线可行比例低于此则退化为自由规划
+    # 规划/执行（真机首次务必用小的速度缩放，确认无误再调大）
+    planning_time: 5.0                 # 单次规划最长 s
+    planning_attempts: 5
+    max_velocity_scaling: 0.2          # [0,1] 关节速度上限比例
+    max_acceleration_scaling: 0.2
+    goal_position_tolerance: 0.002     # m
+    goal_orientation_tolerance: 0.02   # rad
+    execution_timeout: 60.0            # 单段运动最长等待 s
     # 放置位姿（基座系）[x,y,z,qx,qy,qz,qw]
     # enable_inhand=false: 解释为 TCP 放置位姿; true: 解释为零件目标位姿
     place_pose: [0.4, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]
@@ -45,7 +54,7 @@ grasp_executor:
 inhand_estimator:
   ros__parameters:
     base_frame: "base_link"
-    tcp_link: "tool0"
+    tcp_link: "gripper_grasp_tcp"      # 与 grasp_executor 一致（夹爪指尖 TCP）
     stale_timeout: 1.0                 # 检测结果最大时效(s)
 
 pick_loop:

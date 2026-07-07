@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!--
+  UR5 + 沃姆 EPGC-50 夹爪 —— 供 ur_robot_driver 的 ur_control.launch.py 使用的
+  description_file（含 ros2_control 硬件配置，与官方 ur.urdf.xacro 完全同参）。
+
+  原理：直接 include 官方 ur.urdf.xacro（其内部实例化 ur_robot 宏 + ros2_control），
+  再把夹爪宏挂到 tool0。ur_control.launch.py 在命令行传入的全部 xacro 参数
+  （robot_ip / use_fake_hardware / script_filename / tf_prefix ...）
+  会原样被 included 文件消费，无需在此重复声明。
+
+  用法（在 launch 里覆盖驱动的描述文件）:
+    description_package:=bin_picking_description
+    description_file:=ur5_with_gripper_control.xacro
+
+  ⚠️ 夹爪安装偏置（转接板厚 12mm）与 ur5_with_gripper.xacro 保持一致，
+     改动时两处同步。
+-->
+<robot name="ur5_with_gripper" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 官方 UR 顶层描述（含 ros2_control）。所有 arg 用官方默认或 launch 传入值 -->
+  <xacro:include filename="$(find ur_description)/urdf/ur.urdf.xacro"/>
+
+  <!-- 本项目夹爪宏 -->
+  <xacro:include filename="$(find bin_picking_description)/urdf/worm_epgc50.xacro"/>
+
+  <!-- 夹爪装到法兰 tool0。z=转接板厚度（实测约12mm）-->
+  <xacro:worm_epgc50 prefix="gripper_" parent="$(arg tf_prefix)tool0">
+    <origin xyz="0 0 0.012" rpy="0 0 0"/>
+  </xacro:worm_epgc50>
+
+</robot>

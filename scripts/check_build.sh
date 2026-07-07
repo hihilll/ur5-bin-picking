@@ -35,8 +35,19 @@ ros2 interface show bin_picking_interfaces/msg/ObjectPose > /dev/null && echo "�
 ros2 interface show bin_picking_interfaces/msg/GraspCandidate > /dev/null && echo "✓ GraspCandidate"
 ros2 interface show bin_picking_interfaces/srv/SetGripper > /dev/null && echo "✓ SetGripper"
 
+echo "-- MoveIt 组合模型（UR5+夹爪 URDF/SRDF）--"
+DESC="$(ros2 pkg prefix bin_picking_description)/share/bin_picking_description"
+xacro "$DESC/urdf/ur5_with_gripper_control.xacro" ur_type:=ur5 > /tmp/ur5g.urdf \
+  && check_urdf /tmp/ur5g.urdf > /dev/null && echo "✓ ur5_with_gripper_control.xacro" \
+  || echo "✗ 组合 URDF 处理失败（检查 ur_description 是否安装）"
+xacro "$DESC/srdf/ur5_with_gripper.srdf.xacro" name:=ur prefix:= > /tmp/ur5g.srdf \
+  && echo "✓ ur5_with_gripper.srdf.xacro" \
+  || echo "✗ 组合 SRDF 处理失败（检查 ur_moveit_config 是否安装）"
+
 echo "==== [6/6] 节点自检（模拟模式，3秒后退出） ===="
 timeout 3 ros2 run bin_picking_grasp gripper_driver --ros-args -p simulate:=true || true
+# 执行器纯逻辑模式（不连 MoveIt，只打印动作序列）
+timeout 3 ros2 run bin_picking_grasp grasp_executor --ros-args -p simulate:=true || true
 echo ""
 echo "✅ 自检完成。若以上无 ✗ 报错，代码与依赖就绪。"
 echo "   下一步可跑仿真: ros2 launch bin_picking_bringup sim.launch.py"

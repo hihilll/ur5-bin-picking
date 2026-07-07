@@ -32,7 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_grasp', default_value='true'),
     ]
 
-    # UR5 fake hardware
+    # UR5 fake hardware（描述文件换成 UR5+夹爪组合，让 TF/robot_description 含夹爪连杆）
     ur_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('ur_robot_driver'), 'launch', 'ur_control.launch.py'])),
@@ -40,17 +40,18 @@ def generate_launch_description():
             'ur_type': LaunchConfiguration('ur_type'),
             'robot_ip': 'yyy.yyy.yyy.yyy',     # fake 模式忽略
             'use_fake_hardware': 'true',
+            'description_package': 'bin_picking_description',
+            'description_file': 'ur5_with_gripper_control.xacro',
             'launch_rviz': 'false',
             'initial_joint_controller': 'scaled_joint_trajectory_controller',
         }.items())
 
-    # MoveIt2 + RViz
-    ur_moveit = IncludeLaunchDescription(
+    # MoveIt2 + RViz（UR5+夹爪组合模型，自建 move_group）
+    moveit = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('ur_moveit_config'), 'launch', 'ur_moveit.launch.py'])),
+            FindPackageShare('bin_picking_bringup'), 'launch', 'moveit.launch.py'])),
         launch_arguments={
             'ur_type': LaunchConfiguration('ur_type'),
-            'use_fake_hardware': 'true',
             'launch_rviz': 'true',
         }.items())
 
@@ -65,4 +66,4 @@ def generate_launch_description():
         name='grasp_executor', output='screen', parameters=[grasp_params],
         condition=IfCondition(LaunchConfiguration('enable_grasp')))
 
-    return LaunchDescription(args + [ur_control, ur_moveit, gripper, executor])
+    return LaunchDescription(args + [ur_control, moveit, gripper, executor])

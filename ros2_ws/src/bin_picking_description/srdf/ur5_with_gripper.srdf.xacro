@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!--
+  UR5 + 沃姆 EPGC-50 夹爪 的 SRDF（MoveIt 语义描述）。
+
+  组成：
+    1) 官方 ur_moveit_config 的 ur_srdf 宏（规划组 ${name}_manipulator =
+       base_link->tool0 链、UR 本体 disable_collisions、home/up 姿态等）。
+    2) 夹爪部分：gripper 组 + end_effector、手指关节声明为 passive
+       （手指由独立串口驱动控制，MoveIt 不规划它们）、
+       夹爪连杆与手腕连杆之间的 allow collision（相邻/不可能碰撞的连杆对，
+       避免自碰撞误报卡死规划）。
+
+  用 xacro 展开，参数与官方一致: name(默认 ur) / prefix(默认空)。
+  规划组名 = ur_manipulator（name:=ur 时），与 grasp_params.yaml 一致。
+-->
+<robot name="ur5_with_gripper" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="name" default="ur"/>
+  <xacro:arg name="prefix" default=""/>
+
+  <!-- 官方 UR SRDF 宏（含 ur_manipulator 组与 UR 本体碰撞对） -->
+  <xacro:include filename="$(find ur_moveit_config)/srdf/ur_macro.srdf.xacro"/>
+  <xacro:ur_srdf name="$(arg name)" prefix="$(arg prefix)"/>
+
+  <!-- ===== 夹爪 ===== -->
+  <group name="gripper">
+    <link name="gripper_base_link"/>
+    <link name="gripper_left_finger"/>
+    <link name="gripper_right_finger"/>
+    <link name="gripper_grasp_tcp"/>
+  </group>
+  <end_effector name="gripper_ee" parent_link="$(arg prefix)tool0"
+                group="gripper" parent_group="$(arg prefix)$(arg name)_manipulator"/>
+
+  <!-- 手指由 gripper_driver(串口) 控制、不在任何规划组中，声明为 passive；
+       其开度由 gripper_driver 发布到 /joint_states 供碰撞检测。
+       右指是 mimic 关节（自动 passive），无需再声明。 -->
+  <passive_joint name="gripper_left_finger_joint"/>
+
+  <!-- 夹爪与手腕：固连/相邻，永不发生"真"碰撞 -->
+  <disable_collisions link1="gripper_base_link" link2="$(arg prefix)wrist_3_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="$(arg prefix)wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="$(arg prefix)wrist_1_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="$(arg prefix)wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="$(arg prefix)wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="$(arg prefix)wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="$(arg prefix)wrist_2_link" reason="Never"/>
+  <!-- 夹爪内部 -->
+  <disable_collisions link1="gripper_left_finger" link2="gripper_base_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_right_finger" link2="gripper_base_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_left_finger" link2="gripper_right_finger" reason="Default"/>
+
+</robot>

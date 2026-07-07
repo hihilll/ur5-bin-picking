@@ -60,7 +60,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_grasp', default_value='true'),
     ]
 
-    # --- UR5 驱动 ---
+    # --- UR5 驱动（描述文件换成 UR5+夹爪组合，让 TF/robot_description 含夹爪连杆）---
     ur_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('ur_robot_driver'), 'launch', 'ur_control.launch.py'])),
@@ -69,14 +69,16 @@ def generate_launch_description():
             'robot_ip': LaunchConfiguration('robot_ip'),
             'rtde_config_package_timeout': LaunchConfiguration(
                 'rtde_config_package_timeout'),
+            'description_package': 'bin_picking_description',
+            'description_file': 'ur5_with_gripper_control.xacro',
             'launch_rviz': 'false',
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_robot')))
 
-    # --- MoveIt2 (UR) ---
-    ur_moveit = IncludeLaunchDescription(
+    # --- MoveIt2（UR5+夹爪组合模型，自建 move_group + RViz）---
+    moveit = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('ur_moveit_config'), 'launch', 'ur_moveit.launch.py'])),
+            FindPackageShare('bin_picking_bringup'), 'launch', 'moveit.launch.py'])),
         launch_arguments={
             'ur_type': LaunchConfiguration('ur_type'),
             'launch_rviz': 'true',
@@ -119,6 +121,6 @@ def generate_launch_description():
     ], condition=IfCondition(LaunchConfiguration('enable_grasp')))
 
     return LaunchDescription(args + [
-        ur_control, ur_moveit, camera, static_tf_camera,
+        ur_control, moveit, camera, static_tf_camera,
         model_free, grasp_group,
     ])

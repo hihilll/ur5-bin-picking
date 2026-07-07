@@ -1,18 +1,33 @@
-"""取放执行节点：用 MoveIt2(moveit_py) 驱动 UR5 完成 抓取->放置 序列。
+"""取放执行节点：通过 move_group 的 action/service 接口驱动 UR5 完成 抓取->放置 序列。
 
-运动规划方法（阶段3补全）：
+⚠️ 2026-07 MoveIt 集成重写：不再使用 moveit_py（MoveItPy）。
+   原因：moveit_py 是 MoveIt 2.7(Iron) 才引入的，Ubuntu 22.04 + Humble 的
+   apt 二进制 MoveIt(2.5.x) 里没有——真机上 import 必失败、只会静默进模拟模式。
+   现改为纯 rclpy 客户端，对 move_group 标准接口编程，任何 MoveIt2 版本都可用：
+     自由规划+执行: /move_action           (moveit_msgs/action/MoveGroup)
+     笛卡尔直线:    /compute_cartesian_path (moveit_msgs/srv/GetCartesianPath)
+                    + /execute_trajectory   (moveit_msgs/action/ExecuteTrajectory)
+     碰撞场景:      /apply_planning_scene   (moveit_msgs/srv/ApplyPlanningScene)
+   节点本身不再需要 robot_description/SRDF 等 MoveIt 参数（都在 move_group 侧，
+   见 bin_picking_bringup/launch/moveit.launch.py）。
+
+运动规划方法（与重写前一致）：
   - 大范围自由移动（去预抓取位、去放置区）: OMPL RRTConnect（MoveIt 默认）
-  - 抓取接近 / 抬起 / 放置下压 / 退回: **笛卡尔直线**（/compute_cartesian_path）
-  - 避障: 启动时把料框/工作台作为碰撞体加入 Planning Scene
+  - 抓取接近 / 抬起 / 放置下压 / 退回: 笛卡尔直线
+  - 避障: 启动后把料框作为碰撞体加入 Planning Scene
+
+安全限速：
+  - 自由移动: MotionPlanRequest 的 max_velocity/acceleration_scaling_factor
+  - 笛卡尔: humble 的 /compute_cartesian_path 无缩放字段（固定按全速做时间
+    参数化），本节点对返回轨迹做时间拉伸(_slow_down)达到同样限速效果
 
 序列:
   开夹爪 -> 自由移到预抓取位 -> 直线下到抓取位 -> 闭夹爪 -> 直线抬起
-  -> 自由移到放置预备位 -> 直线下到放置位 -> 开夹爪 -> 直线退回 -> (可回 home)
+  -> (阶段4: 检视位在手重估计) -> 放置 -> 开夹爪 -> 直线退回
 
 触发: std_srvs/Trigger 服务 /pick_place/run
-
-⚠️ 按你的 MoveIt 配置调整: PLANNING_GROUP('ur_manipulator')、TCP_LINK('tool0')、料框尺寸/位姿。
-阶段四会在"闭夹爪后"插入"在手位姿重估计 + 补偿"。
+TCP: 默认 gripper_grasp_tcp（指尖，见 ur5_with_gripper 组合模型）；
+     MoveIt 对"固连在规划链末端之后的连杆"可直接求 IK/笛卡尔，无需改规划组。
 """
 
 from __future__ import annotations
@@ -22,7 +37,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
-from geometry_msgs.msg import PoseStamped, Pose
+from geometry_msgs.msg import PoseStamped, Pose, Vector3
 from std_srvs.srv import Trigger
 
 from bin_picking_interfaces.msg import GraspCandidateArray
@@ -31,14 +46,16 @@ from bin_picking_grasp.geometry_utils import (
     pose_to_matrix, matrix_to_pose, transform_to_matrix, invert)
 
 try:
-    from moveit.planning import MoveItPy
-    from moveit.core.robot_trajectory import RobotTrajectory
-    from moveit_msgs.srv import GetCartesianPath
-    from moveit_msgs.msg import CollisionObject
+    from rclpy.action import ActionClient
+    from moveit_msgs.action import MoveGroup, ExecuteTrajectory
+    from moveit_msgs.srv import GetCartesianPath, ApplyPlanningScene
+    from moveit_msgs.msg import (
+        Constraints, PositionConstraint, OrientationConstraint,
+        BoundingVolume, PlanningScene, CollisionObject, MoveItErrorCodes)
     from shape_msgs.msg import SolidPrimitive
-    _HAS_MOVEIT = True
-except ImportError:
-    _HAS_MOVEIT = False
+    _HAS_MOVEIT_MSGS = True
+except ImportError:  # 无 MoveIt 环境（纯逻辑测试）时进模拟模式
+    _HAS_MOVEIT_MSGS = False
 
 
 class GraspExecutor(Node):
@@ -47,8 +64,9 @@ class GraspExecutor(Node):
         super().__init__('grasp_executor')
 
         self.declare_parameter('planning_group', 'ur_manipulator')
-        self.declare_parameter('tcp_link', 'tool0')
+        self.declare_parameter('tcp_link', 'gripper_grasp_tcp')
         self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter('simulate', False)  # true=不连 MoveIt 只打印
         self.declare_parameter('approach_distance', 0.10)
         self.declare_parameter('lift_height', 0.15)
         self.declare_parameter('gripper_open_width', 0.05)   # EPGC-50 行程50mm
@@ -56,6 +74,14 @@ class GraspExecutor(Node):
         self.declare_parameter('gripper_speed', 50.0)
         self.declare_parameter('cartesian_step', 0.005)       # 笛卡尔插值步长 m
         self.declare_parameter('cartesian_min_fraction', 0.9)  # 直线可行最低比例
+        # 规划/执行
+        self.declare_parameter('planning_time', 5.0)
+        self.declare_parameter('planning_attempts', 5)
+        self.declare_parameter('max_velocity_scaling', 0.2)     # 真机先慢！
+        self.declare_parameter('max_acceleration_scaling', 0.2)
+        self.declare_parameter('goal_position_tolerance', 0.002)   # m
+        self.declare_parameter('goal_orientation_tolerance', 0.02)  # rad
+        self.declare_parameter('execution_timeout', 60.0)      # 单段运动最长 s
         # 放置位姿（基座系）: [x,y,z,qx,qy,qz,qw]
         # enable_inhand=false 时解释为"TCP 放置位姿"；true 时解释为"零件目标位姿"
         self.declare_parameter('place_pose', [0.4, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0])
@@ -69,44 +95,63 @@ class GraspExecutor(Node):
         self.declare_parameter('bin_wall_thickness', 0.01)
         self.declare_parameter('add_bin_collision', True)
 
-        self.group = self.get_parameter('planning_group').value
-        self.tcp_link = self.get_parameter('tcp_link').value
-        self.base_frame = self.get_parameter('base_frame').value
-        self.approach_distance = self.get_parameter('approach_distance').value
-        self.lift_height = self.get_parameter('lift_height').value
-        self.open_width = self.get_parameter('gripper_open_width').value
-        self.grasp_force = self.get_parameter('gripper_grasp_force').value
-        self.gripper_speed = self.get_parameter('gripper_speed').value
-        self.cart_step = self.get_parameter('cartesian_step').value
-        self.cart_min_fraction = self.get_parameter('cartesian_min_fraction').value
-        self.place_pose = list(self.get_parameter('place_pose').value)
-        self.enable_inhand = self.get_parameter('enable_inhand').value
-        self.inspection_pose = list(self.get_parameter('inspection_pose').value)
-        self.bin_center = list(self.get_parameter('bin_center').value)
-        self.bin_size = list(self.get_parameter('bin_size').value)
-        self.bin_wall = self.get_parameter('bin_wall_thickness').value
-        self.add_bin_collision = self.get_parameter('add_bin_collision').value
+        gp = self.get_parameter
+        self.group = gp('planning_group').value
+        self.tcp_link = gp('tcp_link').value
+        self.base_frame = gp('base_frame').value
+        self.approach_distance = gp('approach_distance').value
+        self.lift_height = gp('lift_height').value
+        self.open_width = gp('gripper_open_width').value
+        self.grasp_force = gp('gripper_grasp_force').value
+        self.gripper_speed = gp('gripper_speed').value
+        self.cart_step = gp('cartesian_step').value
+        self.cart_min_fraction = gp('cartesian_min_fraction').value
+        self.planning_time = gp('planning_time').value
+        self.planning_attempts = gp('planning_attempts').value
+        self.vel_scale = gp('max_velocity_scaling').value
+        self.acc_scale = gp('max_acceleration_scaling').value
+        self.pos_tol = gp('goal_position_tolerance').value
+        self.ori_tol = gp('goal_orientation_tolerance').value
+        self.exec_timeout = gp('execution_timeout').value
+        self.place_pose = list(gp('place_pose').value)
+        self.enable_inhand = gp('enable_inhand').value
+        self.inspection_pose = list(gp('inspection_pose').value)
+        self.bin_center = list(gp('bin_center').value)
+        self.bin_size = list(gp('bin_size').value)
+        self.bin_wall = gp('bin_wall_thickness').value
+        self.add_bin_collision = gp('add_bin_collision').value
+
+        self.simulate = gp('simulate').value or not _HAS_MOVEIT_MSGS
+        if not _HAS_MOVEIT_MSGS:
+            self.get_logger().warn('未找到 moveit_msgs，执行器进入模拟(只打印)模式')
 
         self.cb_group = ReentrantCallbackGroup()
         self._latest = None
 
-        # MoveIt
-        if _HAS_MOVEIT:
-            self.moveit = MoveItPy(node_name='grasp_executor_moveit')
-            self.arm = self.moveit.get_planning_component(self.group)
-            self.robot_model = self.moveit.get_robot_model()
-            self.psm = self.moveit.get_planning_scene_monitor()
+        # MoveIt 客户端（全部指向 move_group 节点的标准接口）
+        if not self.simulate:
+            self.move_cli = ActionClient(
+                self, MoveGroup, '/move_action', callback_group=self.cb_group)
+            self.exec_cli = ActionClient(
+                self, ExecuteTrajectory, '/execute_trajectory',
+                callback_group=self.cb_group)
             self.cart_cli = self.create_client(
                 GetCartesianPath, '/compute_cartesian_path',
                 callback_group=self.cb_group)
-            self.get_logger().info(f'MoveItPy 已初始化, group={self.group}')
+            self.scene_cli = self.create_client(
+                ApplyPlanningScene, '/apply_planning_scene',
+                callback_group=self.cb_group)
+            self.get_logger().info(
+                f'MoveIt 客户端已就绪, group={self.group}, tcp={self.tcp_link}, '
+                f'vel_scale={self.vel_scale}')
             if self.add_bin_collision:
-                self.setup_planning_scene()
+                # move_group 可能晚于本节点启动：定时重试直到场景写入成功
+                self._scene_tries = 0
+                self._scene_timer = self.create_timer(
+                    2.0, self._try_setup_scene, callback_group=self.cb_group)
         else:
-            self.moveit = None
-            self.arm = None
-            self.cart_cli = None
-            self.get_logger().warn('未找到 moveit_py，执行器进入仿真(只打印)模式')
+            self.move_cli = self.exec_cli = None
+            self.cart_cli = self.scene_cli = None
 
         # 夹爪客户端
         self.gripper_cli = self.create_client(
@@ -127,18 +172,58 @@ class GraspExecutor(Node):
     def on_grasps(self, msg: GraspCandidateArray):
         self._latest = msg
 
+    # ---------- 同步等待工具（MultiThreadedExecutor 下非阻塞轮询） ----------
+    def _wait_future(self, future, timeout_sec: float):
+        """等 future 完成；不在回调里 spin（依赖执行器其它线程），超时返回 None。"""
+        start = time.time()
+        while rclpy.ok() and not future.done():
+            if time.time() - start > timeout_sec:
+                return None
+            time.sleep(0.005)
+        return future.result()
+
+    def _call_service(self, client, req, timeout_sec=5.0):
+        future = client.call_async(req)
+        res = self._wait_future(future, timeout_sec)
+        if res is None:
+            self.get_logger().warn('服务调用超时')
+        return res
+
+    def _send_action_goal(self, client, goal, timeout_sec: float, name=''):
+        """发送 action 目标并等结果；失败/超时/被拒绝返回 None。"""
+        if not client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error(
+                f'action 服务器不可用: {name}（move_group 在跑吗？）')
+            return None
+        handle = self._wait_future(client.send_goal_async(goal), 10.0)
+        if handle is None or not handle.accepted:
+            self.get_logger().error('action 目标被拒绝/发送超时')
+            return None
+        wrapped = self._wait_future(handle.get_result_async(), timeout_sec)
+        if wrapped is None:
+            self.get_logger().error('action 执行超时，尝试取消')
+            handle.cancel_goal_async()
+            return None
+        return wrapped.result
+
     # ---------- 碰撞场景 ----------
-    def setup_planning_scene(self):
-        """把料框近似为四面薄壁 + 底板，加入 Planning Scene 做避障。"""
-        try:
-            objs = self._make_bin_collision_objects()
-            with self.psm.read_write() as scene:
-                for obj in objs:
-                    scene.apply_collision_object(obj)
-                scene.current_state.update()
-            self.get_logger().info(f'已加入 {len(objs)} 个料框碰撞体')
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().warn(f'加入碰撞场景失败(可忽略继续): {e}')
+    def _try_setup_scene(self):
+        self._scene_tries += 1
+        if self._scene_tries > 30:  # ~60s 放弃
+            self.get_logger().warn('料框碰撞场景写入放弃（/apply_planning_scene 一直不可用）')
+            self._scene_timer.cancel()
+            return
+        if not self.scene_cli.service_is_ready():
+            return
+        scene = PlanningScene()
+        scene.is_diff = True
+        scene.world.collision_objects = self._make_bin_collision_objects()
+        req = ApplyPlanningScene.Request(scene=scene)
+        res = self._call_service(self.scene_cli, req, timeout_sec=3.0)
+        if res is not None and res.success:
+            self.get_logger().info(
+                f'已加入 {len(scene.world.collision_objects)} 个料框碰撞体')
+            self._scene_timer.cancel()
 
     def _box(self, name, cx, cy, cz, dx, dy, dz) -> 'CollisionObject':
         obj = CollisionObject()
@@ -160,32 +245,15 @@ class GraspExecutor(Node):
         dx, dy, dz = self.bin_size
         t = self.bin_wall
         half_x, half_y = dx / 2, dy / 2
-        objs = [
+        return [
             self._box('bin_bottom', cx, cy, cz - dz / 2 + t / 2, dx, dy, t),
             self._box('bin_wall_xp', cx + half_x, cy, cz, t, dy, dz),
             self._box('bin_wall_xn', cx - half_x, cy, cz, t, dy, dz),
             self._box('bin_wall_yp', cx, cy + half_y, cz, dx, t, dz),
             self._box('bin_wall_yn', cx, cy - half_y, cz, dx, t, dz),
         ]
-        return objs
 
     # ---------- 基础动作 ----------
-    def _call_service(self, client, req, timeout_sec=5.0):
-        """在 MultiThreadedExecutor + ReentrantCallbackGroup 下安全地同步调用服务。
-
-        用 call_async + 非阻塞轮询等待，**不在回调里对本节点再 spin**——
-        spin_until_future_complete 对已加入 executor 的节点会报错/死锁。
-        依赖执行器的其它线程完成 future（本项目 main 里用 MultiThreadedExecutor）。
-        """
-        future = client.call_async(req)
-        start = time.time()
-        while rclpy.ok() and not future.done():
-            if time.time() - start > timeout_sec:
-                self.get_logger().warn('服务调用超时')
-                return None
-            time.sleep(0.005)
-        return future.result()
-
     def set_gripper(self, width, force=0.0, speed=None):
         if not self.gripper_cli.service_is_ready():
             self.get_logger().warn('夹爪服务未就绪，跳过')
@@ -197,25 +265,98 @@ class GraspExecutor(Node):
         res = self._call_service(self.gripper_cli, req, timeout_sec=5.0)
         return res is not None and res.success
 
+    def _pose_goal_constraints(self, pose: PoseStamped) -> 'Constraints':
+        """把 TCP 位姿目标转成 MoveGroup 的 goal_constraints
+        （与 MoveGroupInterface::setPoseTarget 等价的手工构造）。"""
+        c = Constraints()
+
+        pc = PositionConstraint()
+        pc.header = pose.header
+        pc.link_name = self.tcp_link
+        pc.target_point_offset = Vector3()
+        sphere = SolidPrimitive()
+        sphere.type = SolidPrimitive.SPHERE
+        sphere.dimensions = [max(self.pos_tol, 1e-4)]
+        region_pose = Pose()
+        region_pose.position = pose.pose.position
+        region_pose.orientation.w = 1.0
+        bv = BoundingVolume()
+        bv.primitives = [sphere]
+        bv.primitive_poses = [region_pose]
+        pc.constraint_region = bv
+        pc.weight = 1.0
+        c.position_constraints = [pc]
+
+        oc = OrientationConstraint()
+        oc.header = pose.header
+        oc.link_name = self.tcp_link
+        oc.orientation = pose.pose.orientation
+        oc.absolute_x_axis_tolerance = self.ori_tol
+        oc.absolute_y_axis_tolerance = self.ori_tol
+        oc.absolute_z_axis_tolerance = self.ori_tol
+        oc.weight = 1.0
+        c.orientation_constraints = [oc]
+        return c
+
     def move_free(self, pose: PoseStamped) -> bool:
-        """自由空间规划(RRTConnect)移动到位姿。"""
-        if self.arm is None:
+        """自由空间规划(RRTConnect) + 执行（MoveGroup action, plan_and_execute）。"""
+        if self.simulate:
             self.get_logger().info(
                 f'[模拟] 自由移动 -> ({pose.pose.position.x:.3f}, '
                 f'{pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})')
             return True
-        self.arm.set_start_state_to_current_state()
-        self.arm.set_goal_state(pose_stamped_msg=pose, pose_link=self.tcp_link)
-        result = self.arm.plan()
-        if not result:
-            self.get_logger().error('自由规划失败')
+        goal = MoveGroup.Goal()
+        req = goal.request
+        req.group_name = self.group
+        req.allowed_planning_time = self.planning_time
+        req.num_planning_attempts = int(self.planning_attempts)
+        req.max_velocity_scaling_factor = self.vel_scale
+        req.max_acceleration_scaling_factor = self.acc_scale
+        req.start_state.is_diff = True          # 从当前状态出发
+        req.goal_constraints = [self._pose_goal_constraints(pose)]
+        goal.planning_options.plan_only = False
+        goal.planning_options.planning_scene_diff.is_diff = True
+        goal.planning_options.planning_scene_diff.robot_state.is_diff = True
+
+        result = self._send_action_goal(
+            self.move_cli, goal, self.planning_time + self.exec_timeout,
+            name='/move_action')
+        if result is None or result.error_code.val != MoveItErrorCodes.SUCCESS:
+            code = None if result is None else result.error_code.val
+            self.get_logger().error(f'自由规划/执行失败 (error_code={code})')
             return False
-        self.moveit.execute(result.trajectory, controllers=[])
+        return True
+
+    @staticmethod
+    def _slow_down_trajectory(traj, scale: float):
+        """时间拉伸限速：t/=scale, v*=scale, a*=scale^2。
+        humble 的笛卡尔服务按全速(1.0)做时间参数化，无请求端缩放字段，
+        故在客户端等效降速。scale∈(0,1]。"""
+        if scale >= 0.999:
+            return traj
+        for pt in traj.joint_trajectory.points:
+            t = pt.time_from_start.sec + pt.time_from_start.nanosec * 1e-9
+            t /= scale
+            pt.time_from_start.sec = int(t)
+            pt.time_from_start.nanosec = int((t - int(t)) * 1e9)
+            pt.velocities = [v * scale for v in pt.velocities]
+            pt.accelerations = [a * scale * scale for a in pt.accelerations]
+        return traj
+
+    def _execute_trajectory(self, traj) -> bool:
+        goal = ExecuteTrajectory.Goal()
+        goal.trajectory = traj
+        result = self._send_action_goal(
+            self.exec_cli, goal, self.exec_timeout, name='/execute_trajectory')
+        if result is None or result.error_code.val != MoveItErrorCodes.SUCCESS:
+            code = None if result is None else result.error_code.val
+            self.get_logger().error(f'轨迹执行失败 (error_code={code})')
+            return False
         return True
 
     def move_cartesian(self, target: PoseStamped) -> bool:
         """笛卡尔直线移动到目标位姿（从当前 TCP 到 target 走直线）。"""
-        if self.arm is None:
+        if self.simulate:
             self.get_logger().info(
                 f'[模拟] 直线移动 -> ({target.pose.position.x:.3f}, '
                 f'{target.pose.position.y:.3f}, {target.pose.position.z:.3f})')
@@ -228,33 +369,21 @@ class GraspExecutor(Node):
         req.header.frame_id = self.base_frame
         req.group_name = self.group
         req.link_name = self.tcp_link
+        req.start_state.is_diff = True          # 从当前状态出发
         req.max_step = self.cart_step
         req.jump_threshold = 0.0
         req.avoid_collisions = True
         req.waypoints = [target.pose]
-        # 起始状态用当前状态。此 API 对 MoveIt 版本敏感，失败则留空，
-        # move_group 会自动用其当前状态作为起点（兜底不致命）。
-        try:
-            from moveit.core.robot_state import robotStateToRobotStateMsg
-            with self.psm.read_only() as scene:
-                req.start_state = robotStateToRobotStateMsg(scene.current_state)
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().warn(
-                f'设置起始状态失败，改用 move_group 当前状态兜底: {e}')
 
         res = self._call_service(self.cart_cli, req, timeout_sec=10.0)
         if res is None or res.fraction < self.cart_min_fraction:
-            frac = -1 if res is None else res.fraction
+            frac = -1.0 if res is None else res.fraction
             self.get_logger().warn(
                 f'笛卡尔直线只完成 {frac:.2f}，退化为自由规划')
             return self.move_free(target)
 
-        # 把 RobotTrajectory msg 转成 moveit core 轨迹并执行
-        with self.psm.read_only() as scene:
-            rt = RobotTrajectory(self.robot_model)
-            rt.set_robot_trajectory_msg(scene.current_state, res.solution)
-        self.moveit.execute(rt, controllers=[])
-        return True
+        traj = self._slow_down_trajectory(res.solution, self.vel_scale)
+        return self._execute_trajectory(traj)
 
     @staticmethod
     def _offset_along_approach(pose: PoseStamped, distance: float) -> PoseStamped:
