@@ -122,4 +122,3 @@ def generate_launch_description():
         ur_control, ur_moveit, camera, static_tf_camera,
         model_free, grasp_group,
     ])
-</content>

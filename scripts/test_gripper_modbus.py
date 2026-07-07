@@ -34,6 +34,14 @@ except ImportError:
     sys.exit('未安装 pymodbus: pip install pymodbus pyserial')
 
 
+def id_kw(client) -> str:
+    """pymodbus>=3.9 把从站参数 slave= 改名 device_id=，运行时探测该用哪个。
+    （旧版脚本在新版 pymodbus 下会因 TypeError 被吞掉，表现成'全部无应答'）"""
+    import inspect
+    params = inspect.signature(client.read_holding_registers).parameters
+    return 'device_id' if 'device_id' in params else 'slave'
+
+
 def make_client(args) -> ModbusSerialClient:
     return ModbusSerialClient(
         port=args.port, baudrate=args.baud,
@@ -43,12 +51,21 @@ def make_client(args) -> ModbusSerialClient:
 def try_read(client, slave: int, addr: int, count: int):
     """读保持寄存器，成功返回寄存器值列表，失败返回 None。"""
     try:
-        rr = client.read_holding_registers(addr, count=count, slave=slave)
+        rr = client.read_holding_registers(
+            addr, count=count, **{id_kw(client): slave})
         if rr.isError():
             return None
         return list(rr.registers)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        msg = f'{type(e).__name__}: {e}'
+        if msg not in _seen_errors:  # 同类异常只提示一次，避免扫描时刷屏
+            _seen_errors.add(msg)
+            print(f'  [调试] 读寄存器抛异常(非超时,多为API/环境问题): {msg}',
+                  file=sys.stderr)
         return None
+
+
+_seen_errors: set = set()
 
 
 def main():
@@ -76,7 +93,7 @@ def main():
     try:
         if args.write is not None:
             addr, value = args.write
-            rr = client.write_register(addr, value, slave=args.slave)
+            rr = client.write_register(addr, value, **{id_kw(client): args.slave})
             if rr.isError():
                 sys.exit(f'✗ 写 {hex(addr)}={value} 失败: {rr}')
             print(f'✓ 已写 {hex(addr)} = {value} (从站 {args.slave})')

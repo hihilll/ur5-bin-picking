@@ -24,4 +24,3 @@ model_free_grasp:
     width_margin: 0.005        # 目标开口 = 物体短边宽度 + 余量
     grasp_depth: 0.005         # 抓取点从簇顶下沉量(m)
     max_grasp_extent: 0.06     # 短边宽度超此判为不可抓/背景
-</content>
