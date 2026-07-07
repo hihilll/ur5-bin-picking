@@ -41,7 +41,7 @@ class GraspClient(RGBDClientNode):
         self.declare_parameter('max_grasps', 10)
         self.declare_parameter('min_score', 0.2)
         # 夹爪可行性过滤
-        self.declare_parameter('gripper_max_width', 0.05)   # 行程 50mm
+        self.declare_parameter('gripper_max_width', 0.05)   # EPGC-50 行程50mm
         self.declare_parameter('gripper_min_width', 0.002)
         # 接近方向过滤: 抓取 z 轴与基座 -Z 的夹角上限(deg)。
         # 俯视料框场景夹爪只能从上方伸入，侧向抓取不可达。

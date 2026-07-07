@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <!--
   沃姆 EPGC-50-150 二指平行夹爪 xacro 宏（参数化占位）。
-  行程 50mm（每指 ±25mm），负载 3kg。
-  ⚠️ 以下尺寸为占位估计，请按沃姆实物图纸/CAD 修改 <xacro:property>。
+  行程 50mm（每指 ±25mm），负载 3kg。手指为用户自制。
+  ⚠️ 以下尺寸为占位估计，请按实物测量修改 <xacro:property>（finger_len 量自制手指）。
   定义:
     <prefix>base_link   夹爪基座（固连到机械臂法兰 tool0）
     <prefix>left_finger / right_finger  两指（prismatic）

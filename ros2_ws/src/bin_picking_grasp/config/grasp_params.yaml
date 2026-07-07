@@ -1,9 +1,11 @@
 gripper_driver:
   ros__parameters:
-    port: "/dev/ttyUSB0"        # 沃姆夹爪 USB 串口（用 ls /dev/ttyUSB* 确认）
-    baudrate: 115200
+    port: "/dev/ttyUSB0"        # USB转RS485 转换器串口（用 ls /dev/ttyUSB* 确认）
+    baudrate: 115200            # 已实测（厂家上位机读回 115200/站号1）
     slave_id: 1
     simulate: false             # 调试无硬件时设 true
+    width_offset: 0.0           # 自制手指闭合残隙(m)，真机卡尺标定
+    auto_calibrate: true        # 上电未初始化自动校准（全行程开合一次！）
 
 grasp_planner:
   ros__parameters:
@@ -21,7 +23,7 @@ grasp_executor:
     base_frame: "base_link"
     approach_distance: 0.10
     lift_height: 0.15
-    gripper_open_width: 0.05           # 全开 50mm
+    gripper_open_width: 0.05           # 全开 50mm (EPGC-50)
     gripper_grasp_force: 50.0
     gripper_speed: 50.0
     cartesian_step: 0.005              # 笛卡尔直线插值步长 m

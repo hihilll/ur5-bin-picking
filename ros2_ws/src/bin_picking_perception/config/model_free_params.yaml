@@ -19,7 +19,7 @@ model_free_grasp:
     process_every_n: 5         # 每 N 帧处理一次
 
     # 夹爪与抓取几何
-    gripper_max_width: 0.05    # 行程 50mm
+    gripper_max_width: 0.05    # EPGC-50 行程 50mm（指尖开口另加 width_offset）
     gripper_min_width: 0.002
     width_margin: 0.005        # 目标开口 = 物体短边宽度 + 余量
     grasp_depth: 0.005         # 抓取点从簇顶下沉量(m)

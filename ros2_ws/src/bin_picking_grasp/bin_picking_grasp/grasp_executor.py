@@ -51,7 +51,7 @@ class GraspExecutor(Node):
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('approach_distance', 0.10)
         self.declare_parameter('lift_height', 0.15)
-        self.declare_parameter('gripper_open_width', 0.05)
+        self.declare_parameter('gripper_open_width', 0.05)   # EPGC-50 行程50mm
         self.declare_parameter('gripper_grasp_force', 50.0)
         self.declare_parameter('gripper_speed', 50.0)
         self.declare_parameter('cartesian_step', 0.005)       # 笛卡尔插值步长 m

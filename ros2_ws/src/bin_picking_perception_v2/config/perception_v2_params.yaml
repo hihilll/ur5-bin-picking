@@ -37,7 +37,7 @@ grasp_client:
     object_id: "unknown"
     max_grasps: 10
     min_score: 0.2
-    gripper_max_width: 0.05      # 行程 50mm
+    gripper_max_width: 0.05      # EPGC-50 行程 50mm
     gripper_min_width: 0.002
     max_approach_angle_deg: 60.0 # 接近方向与竖直向下的最大夹角
     # 工作区过滤（基座系）——按料框实际位置改，与 model_free_params 一致

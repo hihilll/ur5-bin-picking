@@ -105,7 +105,7 @@ class ModelFreeGrasp(Node):
         self.declare_parameter('max_objects', 10)
         self.declare_parameter('process_every_n', 5)
         # 夹爪与抓取几何
-        self.declare_parameter('gripper_max_width', 0.05)    # 行程 50mm
+        self.declare_parameter('gripper_max_width', 0.05)    # EPGC-50 行程50mm
         self.declare_parameter('gripper_min_width', 0.002)
         self.declare_parameter('width_margin', 0.005)        # 目标宽度在物体尺寸上加的余量
         self.declare_parameter('grasp_depth', 0.005)         # 抓取点从簇顶下沉多少
