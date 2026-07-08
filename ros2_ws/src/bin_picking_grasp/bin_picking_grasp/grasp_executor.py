@@ -51,14 +51,24 @@ from bin_picking_grasp.geometry_utils import (
 try:
     from rclpy.action import ActionClient
     from moveit_msgs.action import MoveGroup, ExecuteTrajectory
-    from moveit_msgs.srv import GetCartesianPath, ApplyPlanningScene
+    from moveit_msgs.srv import (
+        GetCartesianPath, ApplyPlanningScene, GetPositionIK)
     from moveit_msgs.msg import (
         Constraints, PositionConstraint, OrientationConstraint,
-        BoundingVolume, PlanningScene, CollisionObject, MoveItErrorCodes)
+        BoundingVolume, PlanningScene, CollisionObject, MoveItErrorCodes,
+        JointConstraint)
     from shape_msgs.msg import SolidPrimitive
     _HAS_MOVEIT_MSGS = True
 except ImportError:  # 无 MoveIt 环境（纯逻辑测试）时进模拟模式
     _HAS_MOVEIT_MSGS = False
+
+
+# 规划组 ur_manipulator 的 6 个关节（构造关节目标用）。
+# 若给 UR 加了 tf_prefix，需同步带前缀（见 docs/13 [C4]）。
+UR_ARM_JOINTS = [
+    'shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',
+    'wrist_1_joint', 'wrist_2_joint', 'wrist_3_joint',
+]
 
 
 class GraspExecutor(Node):
@@ -120,6 +130,10 @@ class GraspExecutor(Node):
         self.declare_parameter('ground_thickness', 0.02)
         # 自由规划偶发失败(RRTConnect 随机性/时间参数化)时的自动重试次数
         self.declare_parameter('planning_retries', 2)
+        # 方案C：自由移动前先对目标位姿求 IK(以当前姿态为 seed、避碰)，用"关节目标"
+        # 规划，而非把位姿目标丢给 move_group 随机选 IK 解。可根除别扭姿态/大幅绕路。
+        # IK 求解失败时自动退回位姿目标（保底）。设 false 则回到纯位姿目标模式。
+        self.declare_parameter('use_joint_goal', True)
 
         gp = self.get_parameter
         self.group = gp('planning_group').value
@@ -154,6 +168,7 @@ class GraspExecutor(Node):
         self.ground_size = list(gp('ground_size').value)
         self.ground_thickness = gp('ground_thickness').value
         self.planning_retries = int(gp('planning_retries').value)
+        self.use_joint_goal = gp('use_joint_goal').value
 
         self.simulate = gp('simulate').value or not _HAS_MOVEIT_MSGS
         if not _HAS_MOVEIT_MSGS:
@@ -175,6 +190,9 @@ class GraspExecutor(Node):
             self.scene_cli = self.create_client(
                 ApplyPlanningScene, '/apply_planning_scene',
                 callback_group=self.cb_group)
+            # 方案C：自由移动前对目标位姿求 IK（用关节目标规划，避免别扭姿态）
+            self.ik_cli = self.create_client(
+                GetPositionIK, '/compute_ik', callback_group=self.cb_group)
             # 指尖 TCP -> 规划链末端 的换算靠 TF（查一次后缓存到 _T_tip_tcp）。
             # spin_thread=False：本节点已在 main() 的 MultiThreadedExecutor 中，
             # /tf 订阅回调由它处理；若 True 会另起 executor 抢 spin 同一节点而报错。
@@ -359,6 +377,45 @@ class GraspExecutor(Node):
         out.pose = matrix_to_pose(T_base_tip)
         return out
 
+    def _compute_ik(self, tip_pose: PoseStamped):
+        """对规划链末端(plan_tip)位姿求 IK，以 move_group 当前姿态为 seed
+        （数值 IK 倾向收敛到最接近当前的解 → 路径自然、不别扭）、并避开碰撞。
+        返回 {joint_name: position} 或 None（失败）。"""
+        if not self.ik_cli.service_is_ready() and \
+                not self.ik_cli.wait_for_service(timeout_sec=3.0):
+            self.get_logger().warn('/compute_ik 不可用，退回位姿目标')
+            return None
+        req = GetPositionIK.Request()
+        ikr = req.ik_request
+        ikr.group_name = self.group
+        ikr.ik_link_name = self.plan_tip
+        ikr.pose_stamped = tip_pose
+        ikr.robot_state.is_diff = True     # 用当前姿态作 seed（求最近解）
+        ikr.avoid_collisions = True        # IK 解本身也避开桌面/料框
+        ikr.timeout.sec = 1
+        res = self._call_service(self.ik_cli, req, timeout_sec=5.0)
+        if res is None or res.error_code.val != MoveItErrorCodes.SUCCESS:
+            code = None if res is None else res.error_code.val
+            self.get_logger().warn(f'IK 求解失败 (error_code={code})，退回位姿目标')
+            return None
+        js = res.solution.joint_state
+        return dict(zip(js.name, js.position))
+
+    def _joint_goal_constraints(self, joint_map) -> 'Constraints':
+        """由 IK 解的关节值构造关节目标（只约束规划组 6 个臂关节）。"""
+        c = Constraints()
+        for name in UR_ARM_JOINTS:
+            if name not in joint_map:
+                continue
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = float(joint_map[name])
+            jc.tolerance_above = 1e-3
+            jc.tolerance_below = 1e-3
+            jc.weight = 1.0
+            c.joint_constraints.append(jc)
+        return c
+
     def _pose_goal_constraints(self, pose: PoseStamped) -> 'Constraints':
         """把 TCP 位姿目标转成 MoveGroup 的 goal_constraints
         （与 MoveGroupInterface::setPoseTarget 等价的手工构造）。"""
@@ -403,6 +460,15 @@ class GraspExecutor(Node):
         if tip_pose is None:
             self.get_logger().error('TCP->规划末端 换算失败，放弃自由规划')
             return False
+        # 方案C：先求 IK 用关节目标（避免 move_group 随机选到别扭 IK 解）；
+        # IK 失败自动退回位姿目标。
+        goal_constraints = None
+        if self.use_joint_goal:
+            joint_map = self._compute_ik(tip_pose)
+            if joint_map:
+                goal_constraints = self._joint_goal_constraints(joint_map)
+        if goal_constraints is None:
+            goal_constraints = self._pose_goal_constraints(tip_pose)
         goal = MoveGroup.Goal()
         req = goal.request
         req.group_name = self.group
@@ -411,7 +477,7 @@ class GraspExecutor(Node):
         req.max_velocity_scaling_factor = self.vel_scale
         req.max_acceleration_scaling_factor = self.acc_scale
         req.start_state.is_diff = True          # 从当前状态出发
-        req.goal_constraints = [self._pose_goal_constraints(tip_pose)]
+        req.goal_constraints = [goal_constraints]
         goal.planning_options.plan_only = False
         goal.planning_options.planning_scene_diff.is_diff = True
         goal.planning_options.planning_scene_diff.robot_state.is_diff = True

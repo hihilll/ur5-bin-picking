@@ -40,6 +40,7 @@ grasp_executor:
     goal_orientation_tolerance: 0.02   # rad
     execution_timeout: 60.0            # 单段运动最长等待 s
     planning_retries: 2                # 自由规划偶发失败(RRTConnect随机/时间参数化,常见-2)自动重试次数
+    use_joint_goal: true               # 自由移动前先求IK用关节目标(根除别扭姿态/大幅绕路)；IK失败自动退回位姿目标
     # 放置位姿（基座系）[x,y,z,qx,qy,qz,qw]
     # enable_inhand=false: 解释为 TCP 放置位姿; true: 解释为零件目标位姿
     place_pose: [0.4, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]
