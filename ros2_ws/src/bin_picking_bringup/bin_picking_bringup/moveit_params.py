@@ -33,12 +33,31 @@ _REQUEST_ADAPTERS = (
 )
 
 
+def _unwrap_ros_params(data):
+    """ur_moveit_config 里部分 yaml 是 ROS2 参数文件格式(顶层 '/**:' ->
+    'ros__parameters:')，需剥到里层裸内容才能作 MoveIt 参数用；
+    其余是裸 yaml(如 joint_limits/controllers/ompl_planning)，原样返回。
+
+    ⚠️ 关键：kinematics.yaml 是带包裹格式，不剥的话 move_group 收不到
+    robot_description_kinematics，ur_manipulator 组就没有 IK 求解器，
+    位姿目标会 'Unable to construct goal representation'（关节目标不受影响，
+    故 RViz 手动拖动 Plan 能过、执行器发的位姿目标过不了）。"""
+    if isinstance(data, dict):
+        for k in ('/**', '/*', 'move_group', '/move_group'):
+            v = data.get(k)
+            if isinstance(v, dict) and 'ros__parameters' in v:
+                return v['ros__parameters']
+        if 'ros__parameters' in data:
+            return data['ros__parameters']
+    return data
+
+
 def _load_yaml(package: str, rel_path: str):
-    """读包内 yaml；不存在/解析失败返回 None（调用方给兜底）。"""
+    """读包内 yaml（自动剥 ROS2 参数文件包裹）；不存在/解析失败返回 None。"""
     try:
         path = os.path.join(get_package_share_directory(package), rel_path)
         with open(path) as f:
-            return yaml.safe_load(f)
+            return _unwrap_ros_params(yaml.safe_load(f))
     except Exception:  # noqa: BLE001
         return None
 
@@ -66,7 +85,11 @@ def robot_description_semantic() -> dict:
 
 def robot_description_kinematics() -> dict:
     kin = _load_yaml('ur_moveit_config', 'config/kinematics.yaml')
-    if kin is None:  # 兜底：KDL（与官方一致）
+    # 剥掉 ros__parameters 后仍含一层 'robot_description_kinematics'，取其值，
+    # 使返回结构为 {'robot_description_kinematics': {'ur_manipulator': {...}}}
+    if isinstance(kin, dict) and 'robot_description_kinematics' in kin:
+        kin = kin['robot_description_kinematics']
+    if not kin:  # 兜底：KDL（与官方一致）
         kin = {'ur_manipulator': {
             'kinematics_solver': 'kdl_kinematics_plugin/KDLKinematicsPlugin',
             'kinematics_solver_search_resolution': 0.005,
