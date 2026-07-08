@@ -34,11 +34,14 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped, Pose, Vector3
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformListener
 
 from bin_picking_interfaces.msg import GraspCandidateArray
 from bin_picking_interfaces.srv import SetGripper, EstimateInHand
@@ -65,6 +68,10 @@ class GraspExecutor(Node):
 
         self.declare_parameter('planning_group', 'ur_manipulator')
         self.declare_parameter('tcp_link', 'gripper_grasp_tcp')
+        # 规划组 IK 链的真正末端（UR 官方规划组 ur_manipulator 到 tool0 为止）。
+        # 抓取以指尖 tcp_link 为 TCP，但 move_group 只能对求解链末端构造目标，
+        # 故执行器把指尖目标换算回该 link 再发（见 _tcp_to_tip_pose）。
+        self.declare_parameter('planning_tip_link', 'tool0')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('simulate', False)  # true=不连 MoveIt 只打印
         self.declare_parameter('approach_distance', 0.10)
@@ -104,6 +111,7 @@ class GraspExecutor(Node):
         gp = self.get_parameter
         self.group = gp('planning_group').value
         self.tcp_link = gp('tcp_link').value
+        self.plan_tip = gp('planning_tip_link').value
         self.base_frame = gp('base_frame').value
         self.approach_distance = gp('approach_distance').value
         self.lift_height = gp('lift_height').value
@@ -148,9 +156,16 @@ class GraspExecutor(Node):
             self.scene_cli = self.create_client(
                 ApplyPlanningScene, '/apply_planning_scene',
                 callback_group=self.cb_group)
+            # 指尖 TCP -> 规划链末端 的换算靠 TF（查一次后缓存到 _T_tip_tcp）。
+            # spin_thread=False：本节点已在 main() 的 MultiThreadedExecutor 中，
+            # /tf 订阅回调由它处理；若 True 会另起 executor 抢 spin 同一节点而报错。
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(
+                self.tf_buffer, self, spin_thread=False)
+            self._T_tip_tcp = None
             self.get_logger().info(
                 f'MoveIt 客户端已就绪, group={self.group}, tcp={self.tcp_link}, '
-                f'vel_scale={self.vel_scale}')
+                f'plan_tip={self.plan_tip}, vel_scale={self.vel_scale}')
             if self.add_bin_collision:
                 # move_group 可能晚于本节点启动：定时重试直到场景写入成功
                 self._scene_tries = 0
@@ -276,6 +291,46 @@ class GraspExecutor(Node):
         res = self._call_service(self.gripper_cli, req, timeout_sec=5.0)
         return res is not None and res.success
 
+    def _tip_to_tcp_matrix(self):
+        """规划链末端(plan_tip) -> 指尖 TCP(tcp_link) 的固定变换(4x4)，查一次缓存。
+        两者都固连在机械臂上，关系恒定；靠 TF 拿到、不硬编码尺寸。"""
+        if self._T_tip_tcp is not None:
+            return self._T_tip_tcp
+        if self.tcp_link == self.plan_tip:
+            self._T_tip_tcp = np.eye(4)
+            return self._T_tip_tcp
+        start = time.time()
+        while rclpy.ok() and time.time() - start < 5.0:
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    self.plan_tip, self.tcp_link, Time())
+                self._T_tip_tcp = transform_to_matrix(tf.transform)
+                self.get_logger().info(
+                    f'TCP 换算就绪: {self.plan_tip} -> {self.tcp_link}')
+                return self._T_tip_tcp
+            except Exception:  # noqa: BLE001  TF 尚未就绪，短暂重试
+                time.sleep(0.05)
+        self.get_logger().error(
+            f'查不到 TF {self.plan_tip}->{self.tcp_link}，无法换算 TCP 目标')
+        return None
+
+    def _tcp_to_tip_pose(self, pose: PoseStamped):
+        """把"指尖 TCP 目标位姿"换算成"规划链末端(tool0)目标位姿"。
+        move_group 只会对规划组 IK 链末端构造目标，直接用指尖会报
+        'Unable to construct goal representation'。返回 None 表示换算失败。
+          T_base_tip = T_base_tcp * inv(T_tip_tcp)
+        """
+        if self.tcp_link == self.plan_tip:
+            return pose
+        T_tip_tcp = self._tip_to_tcp_matrix()
+        if T_tip_tcp is None:
+            return None
+        T_base_tip = pose_to_matrix(pose.pose) @ invert(T_tip_tcp)
+        out = PoseStamped()
+        out.header = pose.header
+        out.pose = matrix_to_pose(T_base_tip)
+        return out
+
     def _pose_goal_constraints(self, pose: PoseStamped) -> 'Constraints':
         """把 TCP 位姿目标转成 MoveGroup 的 goal_constraints
         （与 MoveGroupInterface::setPoseTarget 等价的手工构造）。"""
@@ -283,7 +338,7 @@ class GraspExecutor(Node):
 
         pc = PositionConstraint()
         pc.header = pose.header
-        pc.link_name = self.tcp_link
+        pc.link_name = self.plan_tip
         pc.target_point_offset = Vector3()
         sphere = SolidPrimitive()
         sphere.type = SolidPrimitive.SPHERE
@@ -300,7 +355,7 @@ class GraspExecutor(Node):
 
         oc = OrientationConstraint()
         oc.header = pose.header
-        oc.link_name = self.tcp_link
+        oc.link_name = self.plan_tip
         oc.orientation = pose.pose.orientation
         oc.absolute_x_axis_tolerance = self.ori_tol
         oc.absolute_y_axis_tolerance = self.ori_tol
@@ -316,6 +371,10 @@ class GraspExecutor(Node):
                 f'[模拟] 自由移动 -> ({pose.pose.position.x:.3f}, '
                 f'{pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})')
             return True
+        tip_pose = self._tcp_to_tip_pose(pose)
+        if tip_pose is None:
+            self.get_logger().error('TCP->规划末端 换算失败，放弃自由规划')
+            return False
         goal = MoveGroup.Goal()
         req = goal.request
         req.group_name = self.group
@@ -324,7 +383,7 @@ class GraspExecutor(Node):
         req.max_velocity_scaling_factor = self.vel_scale
         req.max_acceleration_scaling_factor = self.acc_scale
         req.start_state.is_diff = True          # 从当前状态出发
-        req.goal_constraints = [self._pose_goal_constraints(pose)]
+        req.goal_constraints = [self._pose_goal_constraints(tip_pose)]
         goal.planning_options.plan_only = False
         goal.planning_options.planning_scene_diff.is_diff = True
         goal.planning_options.planning_scene_diff.robot_state.is_diff = True
@@ -376,15 +435,20 @@ class GraspExecutor(Node):
             self.get_logger().warn('compute_cartesian_path 不可用，退化为自由规划')
             return self.move_free(target)
 
+        tip_target = self._tcp_to_tip_pose(target)
+        if tip_target is None:
+            self.get_logger().warn('TCP->规划末端 换算失败，退化为自由规划')
+            return self.move_free(target)
+
         req = GetCartesianPath.Request()
         req.header.frame_id = self.base_frame
         req.group_name = self.group
-        req.link_name = self.tcp_link
+        req.link_name = self.plan_tip
         req.start_state.is_diff = True          # 从当前状态出发
         req.max_step = self.cart_step
         req.jump_threshold = 0.0
         req.avoid_collisions = True
-        req.waypoints = [target.pose]
+        req.waypoints = [tip_target.pose]
 
         res = self._call_service(self.cart_cli, req, timeout_sec=10.0)
         if res is None or res.fraction < self.cart_min_fraction:
