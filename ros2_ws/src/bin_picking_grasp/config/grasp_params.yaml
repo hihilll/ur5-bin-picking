@@ -39,6 +39,7 @@ grasp_executor:
     goal_position_tolerance: 0.002     # m
     goal_orientation_tolerance: 0.02   # rad
     execution_timeout: 60.0            # 单段运动最长等待 s
+    planning_retries: 2                # 自由规划偶发失败(RRTConnect随机/时间参数化,常见-2)自动重试次数
     # 放置位姿（基座系）[x,y,z,qx,qy,qz,qw]
     # enable_inhand=false: 解释为 TCP 放置位姿; true: 解释为零件目标位姿
     place_pose: [0.4, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]
@@ -57,6 +58,16 @@ grasp_executor:
     bin_center: [0.5, 0.0, 0.05]       # 料框中心 / 平台台板中心
     bin_size: [0.4, 0.3, 0.1]          # 料框 长x宽x高 / 平台台板 长x宽x厚
     bin_wall_thickness: 0.01           # 仅料框模式用（壁厚）
+    # 桌面/地面碰撞板：机械臂装桌上，下方是实体桌面。不建模则自由规划会把
+    # 手臂"向下绕"到桌面下方(真机危险)。建一块桌面板，规划器就会避开向下路径。
+    add_ground_plane: true
+    ground_z: -0.02                    # 桌面板顶面高度(基座系 m)。真实桌面≈基座平面(0)，
+                                       # 默认设略低(-0.02)避免碰撞板与机械臂 base 自碰；按实机微调
+    ground_center: [0.4, 0.0]          # 桌面板中心 XY（机械臂前方工作区）
+    ground_size: [1.4, 1.4]            # 桌面板 XY 尺寸，够大以盖住手臂可能绕下的区域
+    ground_thickness: 0.02             # 桌面板厚度
+    # ⚠️ 若启动报"起始状态碰撞/start state in collision"，多半是桌面板碰到了基座：
+    #    把 ground_z 再调低一点，或把 ground_center 往前移、避开基座正下方。
 
 inhand_estimator:
   ros__parameters:

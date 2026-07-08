@@ -107,6 +107,19 @@ class GraspExecutor(Node):
         #            （零件放在其顶面 z = bin_center.z + bin_size.z/2）。
         #   False -> 料框模式：建 底 + 四壁 5 个碰撞盒（bin_center/bin_size 描述框腔）。
         self.declare_parameter('flat_platform', False)
+        # 桌面/地面碰撞板：机械臂装在桌上，下方是实体桌面。不建模的话
+        # move_group 以为下方是自由空间，RRTConnect 会采样出"向下绕到桌面下"
+        # 的路径（仿真无害，真机危险）。建一块桌面板，规划器就会避开向下的路径。
+        #   ground_z      : 桌面顶面高度(基座系 m)，UR5 装桌面上通常 = 0
+        #   ground_center : 板中心 XY——默认偏前避开基座正下方，防与 base 自碰
+        #   ground_size   : 板 XY 尺寸，够大以覆盖手臂可能绕下的区域
+        self.declare_parameter('add_ground_plane', True)
+        self.declare_parameter('ground_z', -0.02)   # 板顶面略低于基座平面防自碰
+        self.declare_parameter('ground_center', [0.4, 0.0])
+        self.declare_parameter('ground_size', [1.4, 1.4])
+        self.declare_parameter('ground_thickness', 0.02)
+        # 自由规划偶发失败(RRTConnect 随机性/时间参数化)时的自动重试次数
+        self.declare_parameter('planning_retries', 2)
 
         gp = self.get_parameter
         self.group = gp('planning_group').value
@@ -135,6 +148,12 @@ class GraspExecutor(Node):
         self.bin_wall = gp('bin_wall_thickness').value
         self.add_bin_collision = gp('add_bin_collision').value
         self.flat_platform = gp('flat_platform').value
+        self.add_ground = gp('add_ground_plane').value
+        self.ground_z = gp('ground_z').value
+        self.ground_center = list(gp('ground_center').value)
+        self.ground_size = list(gp('ground_size').value)
+        self.ground_thickness = gp('ground_thickness').value
+        self.planning_retries = int(gp('planning_retries').value)
 
         self.simulate = gp('simulate').value or not _HAS_MOVEIT_MSGS
         if not _HAS_MOVEIT_MSGS:
@@ -268,16 +287,25 @@ class GraspExecutor(Node):
         if self.flat_platform:
             # 平台模式：只建一块台面板（bin_center/bin_size 即这块板本身），
             # 防止夹爪下压怼穿桌面；不建四壁，俯视抓取不受阻。
-            return [self._box('work_platform', cx, cy, cz, dx, dy, dz)]
-        t = self.bin_wall
-        half_x, half_y = dx / 2, dy / 2
-        return [
-            self._box('bin_bottom', cx, cy, cz - dz / 2 + t / 2, dx, dy, t),
-            self._box('bin_wall_xp', cx + half_x, cy, cz, t, dy, dz),
-            self._box('bin_wall_xn', cx - half_x, cy, cz, t, dy, dz),
-            self._box('bin_wall_yp', cx, cy + half_y, cz, dx, t, dz),
-            self._box('bin_wall_yn', cx, cy - half_y, cz, dx, t, dz),
-        ]
+            objs = [self._box('work_platform', cx, cy, cz, dx, dy, dz)]
+        else:
+            t = self.bin_wall
+            half_x, half_y = dx / 2, dy / 2
+            objs = [
+                self._box('bin_bottom', cx, cy, cz - dz / 2 + t / 2, dx, dy, t),
+                self._box('bin_wall_xp', cx + half_x, cy, cz, t, dy, dz),
+                self._box('bin_wall_xn', cx - half_x, cy, cz, t, dy, dz),
+                self._box('bin_wall_yp', cx, cy + half_y, cz, dx, t, dz),
+                self._box('bin_wall_yn', cx, cy - half_y, cz, dx, t, dz),
+            ]
+        if self.add_ground:
+            # 桌面板：顶面在 ground_z，板体向下延伸，挡住机械臂向下绕的路径。
+            gcx, gcy = self.ground_center
+            gdx, gdy = self.ground_size
+            gt = self.ground_thickness
+            objs.append(self._box(
+                'ground_plane', gcx, gcy, self.ground_z - gt / 2, gdx, gdy, gt))
+        return objs
 
     # ---------- 基础动作 ----------
     def set_gripper(self, width, force=0.0, speed=None):
@@ -388,14 +416,20 @@ class GraspExecutor(Node):
         goal.planning_options.planning_scene_diff.is_diff = True
         goal.planning_options.planning_scene_diff.robot_state.is_diff = True
 
-        result = self._send_action_goal(
-            self.move_cli, goal, self.planning_time + self.exec_timeout,
-            name='/move_action')
-        if result is None or result.error_code.val != MoveItErrorCodes.SUCCESS:
+        # RRTConnect 随机采样 + 时间参数化偶发失败(常见 error_code=-2)，自动重试
+        for attempt in range(1, self.planning_retries + 2):
+            result = self._send_action_goal(
+                self.move_cli, goal, self.planning_time + self.exec_timeout,
+                name='/move_action')
+            if result is not None and \
+                    result.error_code.val == MoveItErrorCodes.SUCCESS:
+                return True
             code = None if result is None else result.error_code.val
-            self.get_logger().error(f'自由规划/执行失败 (error_code={code})')
-            return False
-        return True
+            self.get_logger().warn(
+                f'自由规划/执行失败 (error_code={code})，'
+                f'尝试 {attempt}/{self.planning_retries + 1}')
+        self.get_logger().error('自由规划/执行重试后仍失败')
+        return False
 
     @staticmethod
     def _slow_down_trajectory(traj, scale: float):
