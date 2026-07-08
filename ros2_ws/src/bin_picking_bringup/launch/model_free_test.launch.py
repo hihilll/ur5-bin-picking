@@ -71,6 +71,17 @@ def generate_launch_description():
                 'rtde_config_package_timeout'),
             'description_package': 'bin_picking_description',
             'description_file': 'ur5_with_gripper_control.xacro',
+            # UR 本体配置 yaml 仍从 ur_description 读：description_package 换成本包后，
+            # 这些参数的默认路径会跟着指向本包(config/ur5/*.yaml 不存在)，导致 xacro 报
+            # "No such file: visual_parameters.yaml"。显式指回 ur_description。
+            'joint_limit_params': PathJoinSubstitution([FindPackageShare('ur_description'),
+                'config', LaunchConfiguration('ur_type'), 'joint_limits.yaml']),
+            'kinematics_params': PathJoinSubstitution([FindPackageShare('ur_description'),
+                'config', LaunchConfiguration('ur_type'), 'default_kinematics.yaml']),
+            'physical_params': PathJoinSubstitution([FindPackageShare('ur_description'),
+                'config', LaunchConfiguration('ur_type'), 'physical_parameters.yaml']),
+            'visual_params': PathJoinSubstitution([FindPackageShare('ur_description'),
+                'config', LaunchConfiguration('ur_type'), 'visual_parameters.yaml']),
             'launch_rviz': 'false',
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_robot')))

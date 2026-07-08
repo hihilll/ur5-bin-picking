@@ -45,11 +45,18 @@ grasp_executor:
     # 阶段4：在手位姿重估计 + 放置补偿
     enable_inhand: false               # 装配级精度时设 true
     inspection_pose: [0.3, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0]  # 举到相机前的 TCP 位姿
-    # 料框碰撞体（基座系，用于 MoveIt 避障）——按真实料框尺寸/位置修改
+    # 工作区碰撞体（基座系，用于 MoveIt 避障）——按真实尺寸/位置修改
     add_bin_collision: true
-    bin_center: [0.5, 0.0, 0.05]       # 料框中心
-    bin_size: [0.4, 0.3, 0.1]          # 料框 长x宽x高
-    bin_wall_thickness: 0.01
+    # 平台模式开关：物件平铺在平台/桌面上(无框壁)=true；料框(有壁)=false
+    #   true : 只建一块台面板防夹爪怼穿桌子；bin_center/bin_size 描述这块台板，
+    #          零件放在其顶面 z = bin_center.z + bin_size.z/2。
+    #          例：桌面高 0.0 → bin_center: [0.5,0.0,-0.01], bin_size: [0.5,0.4,0.02]
+    #          （台板厚 2cm、顶面在 z=0，零件就摆在 z=0 台面上）
+    #   false: 料框模式，建 底+四壁 5 个盒子；bin_center/bin_size 描述框腔
+    flat_platform: false
+    bin_center: [0.5, 0.0, 0.05]       # 料框中心 / 平台台板中心
+    bin_size: [0.4, 0.3, 0.1]          # 料框 长x宽x高 / 平台台板 长x宽x厚
+    bin_wall_thickness: 0.01           # 仅料框模式用（壁厚）
 
 inhand_estimator:
   ros__parameters:

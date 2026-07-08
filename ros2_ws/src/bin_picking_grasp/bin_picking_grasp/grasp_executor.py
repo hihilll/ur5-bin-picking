@@ -89,11 +89,17 @@ class GraspExecutor(Node):
         self.declare_parameter('enable_inhand', False)
         # 检视位（基座系 TCP 位姿，把零件举到相机前）
         self.declare_parameter('inspection_pose', [0.3, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
-        # 料框碰撞盒（基座系）: 中心[x,y,z] 与 尺寸[dx,dy,dz]
+        # 工作区碰撞体（基座系）: 中心[x,y,z] 与 尺寸[dx,dy,dz]
         self.declare_parameter('bin_center', [0.5, 0.0, 0.05])
         self.declare_parameter('bin_size', [0.4, 0.3, 0.1])
         self.declare_parameter('bin_wall_thickness', 0.01)
         self.declare_parameter('add_bin_collision', True)
+        # 平台模式：物件平铺在一块平台/桌面上（无料框壁）。
+        #   True  -> 只建一块台面板防止夹爪下压怼穿桌子，不建四壁；
+        #            此时 bin_center/bin_size 直接描述这块台板本身
+        #            （零件放在其顶面 z = bin_center.z + bin_size.z/2）。
+        #   False -> 料框模式：建 底 + 四壁 5 个碰撞盒（bin_center/bin_size 描述框腔）。
+        self.declare_parameter('flat_platform', False)
 
         gp = self.get_parameter
         self.group = gp('planning_group').value
@@ -120,6 +126,7 @@ class GraspExecutor(Node):
         self.bin_size = list(gp('bin_size').value)
         self.bin_wall = gp('bin_wall_thickness').value
         self.add_bin_collision = gp('add_bin_collision').value
+        self.flat_platform = gp('flat_platform').value
 
         self.simulate = gp('simulate').value or not _HAS_MOVEIT_MSGS
         if not _HAS_MOVEIT_MSGS:
@@ -243,6 +250,10 @@ class GraspExecutor(Node):
     def _make_bin_collision_objects(self):
         cx, cy, cz = self.bin_center
         dx, dy, dz = self.bin_size
+        if self.flat_platform:
+            # 平台模式：只建一块台面板（bin_center/bin_size 即这块板本身），
+            # 防止夹爪下压怼穿桌面；不建四壁，俯视抓取不受阻。
+            return [self._box('work_platform', cx, cy, cz, dx, dy, dz)]
         t = self.bin_wall
         half_x, half_y = dx / 2, dy / 2
         return [

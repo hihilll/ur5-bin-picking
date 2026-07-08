@@ -46,7 +46,12 @@
   执行器对返回轨迹做等效时间拉伸达到同样限速。
 - `goal_position_tolerance` / `goal_orientation_tolerance`：位姿目标容差。
 - `simulate: true`：不连 MoveIt，只打印每个动作（纯逻辑联调用）。
-- 料框碰撞盒 `bin_center/bin_size/...`：启动后经 `/apply_planning_scene` 加入，做避障。
+- 工作区碰撞体 `bin_center/bin_size/...`：启动后经 `/apply_planning_scene` 加入，做避障。
+  - `flat_platform: false`（料框模式）：建 底+四壁 5 个盒子，`bin_center/bin_size` 描述框腔。
+  - `flat_platform: true`（平台模式）：物件平铺在桌面/平台上、无框壁时用。**只建一块台面板**
+    防夹爪下压怼穿桌子、不建四壁（俯视抓取无阻）。此时 `bin_center/bin_size` 直接描述
+    这块台板，零件放在其顶面 `z = bin_center.z + bin_size.z/2`。平台比料框省去壁遮挡/
+    贴壁抓取难题，**建议先用平台把链路跑通**。
 
 ## 验证步骤
 
