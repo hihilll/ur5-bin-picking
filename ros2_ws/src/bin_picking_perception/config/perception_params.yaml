@@ -4,8 +4,10 @@ perception_node:
     input_topic: "/camera/depth_registered/points"
 
     # CAD 模型（拷到 Ubuntu 后改成绝对路径或用 launch 里的 find 拼接）
-    cad_model_path: ""          # 例: /home/tao/ros2_ws/src/bin_picking_description/meshes/part.stl
-    object_id: "part"
+    # ← 上机时填绝对路径。测试件已生成: bin_picking_description/meshes/test_block.stl
+    #   例: /home/tao/ros2_ws/src/bin_picking_description/meshes/test_block.stl
+    cad_model_path: ""
+    object_id: "test_block"
     model_scale: 0.001          # CAD 用 mm -> 点云用 m
     model_sample_points: 20000
 

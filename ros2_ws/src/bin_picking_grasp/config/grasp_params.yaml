@@ -13,8 +13,10 @@ grasp_planner:
   ros__parameters:
     base_frame: "base_link"
     # 抓取标注：CAD 模型系下的抓取位姿，扁平 [x,y,z,roll,pitch,yaw,width] 每7个一组
-    # 默认：在零件原点正上方、夹爪朝下(roll=pi)、开口30mm。按你的零件标定后修改。
-    grasp_annotations: [0.0, 0.0, 0.0, 3.14159, 0.0, 0.0, 0.03]
+    # test_block(36x18x12mm 阶梯块)：抓高台段中心、从上方下夹、手指沿Y闭合、开口18mm。
+    #   x=-9mm(高台X中心) z=6mm(高台半高) roll=pi(夹爪朝下) yaw=pi/2(闭合轴转到Y) width=18mm
+    #   由 scripts/generate_test_part.py 算出；真机可用 scripts/annotate_grasp.py 可视化微调。
+    grasp_annotations: [-0.009, 0.0, 0.006, 3.14159, 0.0, 1.5708, 0.018]
     approach_distance: 0.10
     min_grasp_score: 0.0
 

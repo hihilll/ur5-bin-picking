@@ -5,7 +5,7 @@
   尺寸实测（2026-07）：法兰面→指尖 112.7mm = 转接板12(挂载origin)
   + 本体95 + 滑块段5.7(滑块-本体缝隙1.7+滑块4)。当前直接用滑块夹持、无加长手指；
   若后续加装手指，改 finger_len 并重标 width_offset 即可。
-  ⚠️ body_w/body_h、finger_w/finger_thick 仍为占位（仅碰撞体，待实测）。
+  ⚠️ 仅 finger_thick 仍为占位（仅碰撞体，待实测）；body_w/body_h、finger_w 已实测。
   定义:
     <prefix>base_link   夹爪基座（固连到机械臂法兰 tool0）
     <prefix>left_finger / right_finger  两指（prismatic）
@@ -21,9 +21,9 @@
     <xacro:property name="body_w"   value="0.066"/>
     <xacro:property name="body_h"   value="0.053"/>
     <xacro:property name="finger_len"   value="0.0057"/> <!-- 实测：缝隙1.7+滑块4 -->
-    <xacro:property name="finger_w"     value="0.010"/>  <!-- 占位 -->
+    <xacro:property name="finger_w"     value="0.0165"/> <!-- 实测：滑块宽(平行法兰纵向)16.5mm -->
     <xacro:property name="finger_thick" value="0.008"/>  <!-- 占位 -->
-    <xacro:property name="stroke_half"  value="0.025"/> <!-- 单指行程 25mm -->
+    <xacro:property name="stroke_half"  value="0.0235"/> <!-- 实测：最大开口47mm/2=单指行程23.5mm -->
     <xacro:property name="mass_body"    value="0.30"/>
     <!-- TCP 距基座(沿Z)的距离 = 本体长 + 指长 -->
     <xacro:property name="tcp_z" value="${body_len + finger_len}"/>
