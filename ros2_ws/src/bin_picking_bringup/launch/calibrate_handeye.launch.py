@@ -20,7 +20,7 @@
 
 用法:
   ros2 launch bin_picking_bringup calibrate_handeye.launch.py \
-      marker_id:=26 marker_size:=0.06
+      marker_id:=26 marker_size:=0.0671
 
 标定完成后（在 easy_handeye2 GUI 里 Save）:
   python3 scripts/handeye_to_yaml.py            # 把 .calib 转成 handeye_result.yaml
@@ -56,8 +56,9 @@ def generate_launch_description():
 
         # ---- 标定板（ArUco 单码）----
         DeclareLaunchArgument('marker_id', default_value='26'),
-        DeclareLaunchArgument('marker_size', default_value='0.06',
-                              description='ArUco 边长(m)，务必与实际打印尺寸一致'),
+        DeclareLaunchArgument('marker_size', default_value='0.0671',
+                              description='ArUco 边长(m)，务必与实际打印尺寸一致。'
+                                          '当前值=卡尺实测 67.0x67.2mm 取平均'),
         DeclareLaunchArgument('image_topic',
                               default_value='/camera/color/image_raw'),
         DeclareLaunchArgument('camera_info_topic',
