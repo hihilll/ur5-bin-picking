@@ -5,7 +5,10 @@
   base_link -> camera_link  外参（正是我们要填进 handeye_result.yaml 的量）。
 
 依赖（在 Ubuntu 上装）:
-  sudo apt install ros-humble-easy-handeye2 ros-humble-aruco-ros
+  sudo apt install ros-humble-aruco-ros
+  easy_handeye2 **没有 Humble 的 apt 包**，须源码编译（见 docs/05 第1节）:
+    cd <工作空间>/src && git clone https://github.com/marcoesposito1988/easy_handeye2.git
+    cd .. && rosdep install -iyr --from-paths src && colcon build --packages-up-to easy_handeye2
   （aruco_ros 用来检测标定板并发布 相机->marker 的 TF；也可换 charuco/apriltag）
 
 数据链:
@@ -74,9 +77,12 @@ def generate_launch_description():
     ]
 
     # --- (可选) 相机 ---
+    # time_domain=system：图像用主机时钟盖戳。默认 device 时钟落后系统几百秒，
+    # marker TF 全是旧时间，Take Sample 必报 extrapolation（真机已踩坑）。
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('orbbec_camera'), 'launch', 'gemini2.launch.py'])),
+        launch_arguments={'time_domain': 'system'}.items(),
         condition=IfCondition(LaunchConfiguration('enable_camera')))
 
     # --- (可选) UR5 驱动 ---

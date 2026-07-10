@@ -56,6 +56,9 @@ def generate_launch_description():
         DeclareLaunchArgument('rtde_config_package_timeout', default_value='500'),
         DeclareLaunchArgument('enable_robot', default_value='true'),
         DeclareLaunchArgument('enable_camera', default_value='true'),
+        # 相机时间戳用主机时钟。默认 device 时钟落后系统几百秒，点云经 TF 转基座系
+        # 时必报 extrapolation（手眼标定阶段真机已踩坑）。
+        DeclareLaunchArgument('camera_time_domain', default_value='system'),
         DeclareLaunchArgument('enable_moveit', default_value='true'),
         DeclareLaunchArgument('enable_grasp', default_value='true'),
     ]
@@ -92,6 +95,9 @@ def generate_launch_description():
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('orbbec_camera'), 'launch', 'gemini2.launch.py'])),
+        launch_arguments={
+            'time_domain': LaunchConfiguration('camera_time_domain'),
+        }.items(),
         condition=IfCondition(LaunchConfiguration('enable_camera')))
 
     # --- 手眼外参 静态 TF (base_link -> camera_link) ---
